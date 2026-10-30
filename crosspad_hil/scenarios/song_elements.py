@@ -321,10 +321,12 @@ class _Run:
         before = self.project()
         self.tap_block(self.element_block())
         self.ui.tap("CLIP EDIT")
-        st = self.until(self.song, lambda r: str(r.get("project")) != before,
-                        timeout_s=self.p.job_timeout_s)
+        self.until(self.song, lambda r: str(r.get("project")) != before,
+                   timeout_s=self.p.job_timeout_s)
         self.wait_job()
-        return str(st["project"])
+        # Read once the job is over: a block laid at another tempo is baked in the
+        # background, and the engine is in its nested element meanwhile.
+        return self.project()
 
     def up(self, levels: int) -> str:
         """Power clicks out of @p levels elements. A click that changed nothing (the focus
@@ -502,8 +504,12 @@ class _Run:
             self.ui.tap("ADD TRACK", contains=True)
             self.ui.tap("KITS")
             self.ui.tap("PERF")
-            self.ui.tap_node(self.ui.seek(self.p.kit))
-            self.ui.tap("PICK")
+            # PERF lists every kit in /crosspad/kits (a bench card holds ~200 of
+            # them), a drag moves it about three rows.
+            self.ui.tap_node(self.ui.seek(self.p.kit, swipes=100))   # a tap on the row may pick it
+            self.wait(0.5)
+            if self.ui.screen().find("PICK"):
+                self.ui.tap("PICK")
             self.until(lambda: verbs.kit_status(self.link),
                        lambda r: r["name"] == self.p.kit and not r["loading"],
                        timeout_s=self.p.job_timeout_s)
@@ -753,6 +759,8 @@ class _Run:
             if saw and not any(BAKE_MISSING in lb for lb in labels) and not says_busy(labels):
                 break
             self.wait(POLL_S)
+        self.data["cold_wait"] = {"s": round(self.p.job_timeout_s - (deadline - time.monotonic()), 1),
+                                  "labels": [lb for lb in self.labels() if "ELEMENT" in lb or "BAK" in lb][:8]}
         song = self.pull(self.song_file(self.songs[0]), "song1_cold.json")
         blocks = element_blocks(song)
         bakes = self.listing(BAKE_DIR)
