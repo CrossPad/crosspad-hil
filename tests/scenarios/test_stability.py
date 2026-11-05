@@ -386,3 +386,55 @@ def test_audio_state_the_soak_leaves_the_desk_as_found(tmp_path: Path) -> None:
     assert rep.data["audio_state_restored"] == [
         "ADC input codec 0: 1 -> 2", "ADC input codec 1: 2 -> 1", "codec volume codec 0: 28 -> 64"]
     assert any("audio_state: restored codec volume codec 0" in line for line in ctx.logs)
+
+
+class DrainingMemDevice(MemDevice):
+    """MEM with lifetime marks; from the third probe on DMA RAM has dipped to 952 B."""
+
+    def write(self, data: bytes) -> int:
+        cmd = data.decode("utf-8", "replace").strip()
+        if cmd != "MEM" or self.dead:
+            return super().write(data)
+        self.written.append(cmd)
+        self.probes += 1
+        dma_min = 16_968 if self.probes < 3 else 952
+        self.feed([f"MEM: int_free=40000 int_largest=10000 int_min=24648 int_blocks=500 "
+                   f"psram_free=390000 psram_largest=270000 psram_blocks=100 "
+                   f"dma_free=30000 dma_largest=20000 dma_min={dma_min}"])
+        return len(data)
+
+
+def test_low_water_under_the_floor_fails_a_soak_that_stayed_up(tmp_path: Path) -> None:
+    cdc = DrainingMemDevice()
+    ctx, fake = make_ctx(tmp_path, cdc=cdc)
+    fake.feed(boot_lines())
+    rep = run(ctx, duration_hours=0.5 / 3600, silence_timeout=10.0, probe_interval=0.05)
+    assert rep.data["stats"]["resets"] == 0 and rep.data["stats"]["stalls"] == 0
+    assert rep.passed is False
+    assert rep.exit_code == 1
+    assert rep.summary.startswith(
+        "stability: FAIL — the board stayed up, but its heap low-water is under the floor")
+    assert rep.data["low_water"]["first"]["dma_min"] == 16_968
+    assert rep.data["low_water"]["low"]["dma_min"] == 952
+    assert rep.data["low_water_failures"][0].startswith(
+        "DMA-capable internal heap low-water dma_min=952 B")
+    assert "MEM probe at" in rep.data["low_water"]["drops"][0]["where"]
+
+
+def test_low_water_floors_can_be_turned_off(tmp_path: Path) -> None:
+    cdc = DrainingMemDevice()
+    ctx, fake = make_ctx(tmp_path, cdc=cdc)
+    fake.feed(boot_lines())
+    rep = run(ctx, duration_hours=0.5 / 3600, silence_timeout=10.0, probe_interval=0.05,
+              int_floor=0, dma_floor=0)
+    assert rep.passed is True
+    assert rep.data["low_water"]["low"]["dma_min"] == 952
+
+
+def test_console_only_soak_has_no_low_water(tmp_path: Path) -> None:
+    ctx, fake = make_ctx(tmp_path)
+    fake.feed(boot_lines())
+    rep = run(ctx, duration_hours=0.2 / 3600, silence_timeout=10.0)
+    assert rep.passed is True
+    assert rep.data["low_water"] is None
+    assert "low-water" not in rep.summary

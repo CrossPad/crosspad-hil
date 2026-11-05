@@ -28,12 +28,18 @@ class ChurnDevice(FakeSerial):
     a leak with a name attached. Anything else is echoed, as the device does.
     """
 
-    def __init__(self, leak_per_visit: dict[str, int] | None = None) -> None:
+    def __init__(self, leak_per_visit: dict[str, int] | None = None,
+                 dma_dip: dict[str, int] | None = None) -> None:
         super().__init__(timeout=0.01)
         self.running: str | None = None
         self.int_free = 100_000
         self.leak_per_visit = leak_per_visit or {}
         self.visits: dict[str, int] = {}
+        # Lifetime low-water marks, as MEM reports them; an app in dma_dip
+        # pushes both marks down to that DMA free level on its first visit.
+        self.int_min = 90_000
+        self.dma_min = 60_000
+        self.dma_dip = dma_dip or {}
 
     def write(self, data: bytes) -> int:
         cmd = data.decode("utf-8", "replace").strip()
@@ -51,12 +57,17 @@ class ChurnDevice(FakeSerial):
             if self.running is not None:
                 self.visits[self.running] = self.visits.get(self.running, 0) + 1
                 self.int_free -= self.leak_per_visit.get(self.running, 0)
+                if self.running in self.dma_dip:
+                    dip = self.dma_dip[self.running]
+                    self.int_min = min(self.int_min, dip + 7000)
+                    self.dma_min = min(self.dma_min, dip)
                 self.running = None
             self.feed(["OK"])
         elif cmd == "MEM":
-            self.feed([f"MEM: int_free={self.int_free} int_largest=65536 int_min=90000 "
+            self.feed([f"MEM: int_free={self.int_free} int_largest=65536 int_min={self.int_min} "
                        f"int_blocks=400 psram_free=7000000 psram_largest=6000000 "
-                       f"psram_blocks=120"])
+                       f"psram_blocks=120 dma_free=70000 dma_largest=30000 "
+                       f"dma_min={self.dma_min}"])
         elif cmd == "KIT_STATUS":
             self.feed(["KITSTATUS: current=0 loading=0 pending=-1 name=Basic Kit"])
         else:
@@ -106,6 +117,7 @@ def test_registered_and_defaults() -> None:
     # and the bar has to sit below the ~56 B/visit one that was really there.
     assert (p.rounds, p.apps, p.skip, p.dwell, p.settle, p.leak_bytes) == \
         (8, None, None, 1.0, 1.2, 32)
+    assert (p.int_floor, p.dma_floor) == (16 * 1024, 4 * 1024)
     assert app_churn.DEFAULT_SKIP == ("Power OFF", "Firmware", "Settings")
 
 
@@ -470,3 +482,45 @@ def test_a_kit_reloading_after_the_close_is_waited_for_not_called_a_leak(tmp_pat
                                  base.Progress())
     assert rep.passed, rep.summary
     assert dev.written.count("KIT_STATUS") >= 4 * 3
+
+
+def test_clean_run_reports_the_low_water(tmp_path: Path) -> None:
+    dev = ChurnDevice()
+    ctx, _con = make_ctx(tmp_path, dev)
+    report = app_churn.SCENARIO.run(ctx, app_churn.Params(rounds=4, **FAST), base.Progress())
+    assert report.passed is True
+    lw = report.data["low_water"]
+    assert lw["low"] == {"dma_min": 60_000, "int_min": 90_000}
+    assert lw["drops"] == []
+    assert "dma_min     60000 ->    60000  (floor 4096)" in report.summary
+
+
+def test_low_water_under_the_floor_fails_and_names_the_visit(tmp_path: Path) -> None:
+    # A visit that passes every slope check (int_free flat) but drains DMA RAM
+    # to under 1 kB on the way: the v1.1.1 session that ended at dma_min=952.
+    dev = ChurnDevice(dma_dip={"Mixer": 952})
+    ctx, _con = make_ctx(tmp_path, dev)
+    report = app_churn.SCENARIO.run(ctx, app_churn.Params(rounds=4, **FAST), base.Progress())
+    assert report.passed is False
+    assert report.exit_code == 1
+    assert report.data["leaks"] == []
+    assert all(v["leak"] is False for v in report.data["slopes"].values())
+    lw = report.data["low_water"]
+    assert lw["first"]["dma_min"] == 60_000
+    assert lw["low"] == {"dma_min": 952, "int_min": 7952}
+    assert {"key": "dma_min", "before": 60_000, "after": 952,
+            "where": "Mixer visit, round 1"} in lw["drops"]
+    assert "DMA-capable internal heap low-water dma_min=952 B is under the 4096 B floor " \
+        "(fell below it during this run; 60000 B at the start)" in report.summary
+    assert "internal heap low-water int_min=7952 B is under the 16384 B floor" in report.summary
+    assert "Mixer visit, round 1" in report.summary
+
+
+def test_floor_zero_reports_without_judging(tmp_path: Path) -> None:
+    dev = ChurnDevice(dma_dip={"Mixer": 952})
+    ctx, _con = make_ctx(tmp_path, dev)
+    report = app_churn.SCENARIO.run(
+        ctx, app_churn.Params(rounds=4, int_floor=0, dma_floor=0, **FAST), base.Progress())
+    assert report.passed is True
+    assert report.data["low_water"]["low"]["dma_min"] == 952
+    assert "(not judged)" in report.summary

@@ -27,6 +27,10 @@ switches, and turns what it sees into five counted things.
 * **Heap trend** — the PerfMon ``Free:`` block per slot. A minimum that walks
   steadily down is a leak; the first/last/min per slot is what the report
   carries.
+* **Heap low-water** — with a CDC probe, MEM's ``int_min`` / ``dma_min`` (the
+  lowest free internal and DMA-capable heap since boot) against a floor. Under
+  it, the next SD, WiFi or BLE allocation can fail at any moment, so the soak
+  fails even though the board stayed up.
 
 The soak ends when the duration runs out or the run is cancelled. Cancelling is
 a normal way to stop a soak, not a failure of one, so a cancelled run still
@@ -42,8 +46,9 @@ and offers no reopen, so a port that vanishes ends the run's console instead of
 restarting it — the counter is still reported, always zero, so a reader of two
 reports is not comparing different fields.
 
-Exit code 0 = no resets, fatals, stalls or incomplete boots; 1 = instability
-seen; 2 = no console port to watch.
+Exit code 0 = no resets, fatals, stalls or incomplete boots and the heap
+low-water above its floors; 1 = instability or a low-water under a floor;
+2 = no console port to watch.
 """
 from __future__ import annotations
 
@@ -62,6 +67,7 @@ from crosspad_hil.errors import HilError
 from crosspad_hil.knowledge import load as load_knowledge
 from crosspad_hil.midi import MidiIO, MidiRole
 from crosspad_hil.parsers import ConsoleEvent
+from crosspad_hil.scenarios._low_water import DMA_FLOOR, INT_FLOOR, LowWater
 from crosspad_hil.scenarios.base import Artifact, Context, Progress, Report, register
 
 CONTEXT_LINES = 300          # hil_stability.CONTEXT_LINES
@@ -92,6 +98,14 @@ class Params:
         default=False, metadata={"help": "send periodic MIDI note bursts while soaking"})
     stim_interval: float = field(
         default=20.0, metadata={"help": "seconds between MIDI bursts"})
+    int_floor: int = field(
+        default=INT_FLOOR,
+        metadata={"help": "fail if internal free heap ever fell under this many bytes "
+                          "(MEM int_min, needs the CDC probe; 0 = report only)"})
+    dma_floor: int = field(
+        default=DMA_FLOOR,
+        metadata={"help": "fail if DMA-capable free heap ever fell under this many bytes "
+                          "(MEM dma_min, needs the CDC probe; 0 = report only)"})
 
 
 class MidiStim(threading.Thread):
@@ -149,8 +163,10 @@ class Monitor:
     tracked here, because it is the stability list, not the smoke one.
     """
 
-    def __init__(self, con: Console, workdir: Path, required: list[str], log: Any) -> None:
+    def __init__(self, con: Console, workdir: Path, required: list[str], log: Any,
+                 low_water: LowWater | None = None) -> None:
         self._con = con
+        self.low_water = low_water if low_water is not None else LowWater()
         self._workdir = workdir
         self._required = list(required)
         self._log = log
@@ -312,6 +328,7 @@ class Monitor:
     def probe_heap(self, now: float, mem: dict[str, Any]) -> None:
         self.heap_series.append((round(now, 1), [int(mem["int_free"]),
                                                  int(mem.get("psram_free") or 0)]))
+        self.low_water.sample(mem, f"MEM probe at {time.strftime('%T')}")
 
     # -- summary -----------------------------------------------------------
     def heap_summary(self) -> list[dict[str, int]] | None:
@@ -365,7 +382,8 @@ class StabilityScenario:
                 artifacts.append(
                     Artifact(path=str(con.log_path), mime="text/plain", role="console"))
 
-            mon = Monitor(con, ctx.workdir, required, ctx.log)
+            mon = Monitor(con, ctx.workdir, required, ctx.log,
+                          LowWater(int_floor=p.int_floor, dma_floor=p.dma_floor))
             artifacts.append(
                 Artifact(path=str(mon.events_path), mime="application/x-ndjson", role="events"))
             # If the reset that opening the port caused is already in the ring,
@@ -392,6 +410,13 @@ class StabilityScenario:
             # Read-only until the end: the soak itself only listens and sends MIDI, but a stim
             # note or a board that reboots under it must not leave the mixer/codec moved.
             audio_snap = audio_state.snapshot(link) if link is not None else None
+            if link is not None:
+                # The marks are lifetime minimums: this first reading is what the
+                # board brought into the soak, so a fall is the soak's own.
+                try:
+                    mon.low_water.sample(verbs.mem(link))
+                except HilError as e:
+                    ctx.log(f"first MEM probe failed ({e.code}); low-water starts at the next one")
             halt = threading.Event()
             stim = MidiStim(ctx.device, p.stim_interval, halt, ctx.log) if p.stim_midi else None
             if stim is not None:
@@ -409,6 +434,7 @@ class StabilityScenario:
                 data["stats"] = dict(mon.stats)
                 data["reset_events"] = list(mon.reset_events)
                 data["heap_trend"] = mon.heap_summary()
+                data["low_water"] = mon.low_water.as_data() if link is not None else None
                 for path in mon.contexts:
                     artifacts.append(
                         Artifact(path=path, mime="text/plain", role="context"))
@@ -416,13 +442,25 @@ class StabilityScenario:
             s = mon.stats
             unstable = bool(s["resets"] or s["fatals"] or s["stalls"] or s["incomplete_boots"])
             lines = _summary_lines(data)
+            low_failures: list[str] = []
+            if link is not None:
+                lw_lines, low_failures = mon.low_water.judge()
+                lines.extend(lw_lines)
+                lines.extend(f"  * {f}" for f in low_failures)
+            data["low_water_failures"] = low_failures
+            failed = unstable or bool(low_failures)
             if data["cancelled"]:
                 lines.insert(0, f"stability: cancelled after {data['seconds']:.0f}s "
                                 "— judged on what it saw")
-            lines.insert(0, "stability: " + ("FAIL — the board did not stay up"
-                                             if unstable else "PASS — the board stayed up"))
-            return Report(passed=not unstable, summary="\n".join(lines), data=data,
-                          artifacts=artifacts, exit_code=1 if unstable else 0)
+            if unstable:
+                head = "FAIL — the board did not stay up"
+            elif low_failures:
+                head = "FAIL — the board stayed up, but its heap low-water is under the floor"
+            else:
+                head = "PASS — the board stayed up"
+            lines.insert(0, "stability: " + head)
+            return Report(passed=not failed, summary="\n".join(lines), data=data,
+                          artifacts=artifacts, exit_code=1 if failed else 0)
 
         finally:
             ctx.close_all()

@@ -13,8 +13,13 @@ The device is driven over CDC (APP_LIST / APP_START / APP_STOP), the internal
 heap is sampled with MEM after every close, and the STM VCP console — opened
 WITHOUT resetting the ESP — is watched for fatals and reboots.
 
-Exit code 0 = PASS, 1 = leak / crash / stuck, 2 = device without HIL control
-or an unknown app name.
+The lowest internal and DMA-capable free heap since boot (MEM int_min /
+dma_min) is judged against a floor too, and each visit that lowered it is named:
+a session can pass every slope check and still leave the board with under 1 kB
+of DMA RAM, where the next SD, WiFi or BLE allocation fails.
+
+Exit code 0 = PASS, 1 = leak / crash / stuck / low-water under the floor,
+2 = device without HIL control or an unknown app name.
 """
 from __future__ import annotations
 
@@ -26,6 +31,7 @@ from crosspad_hil.cdc import CdcLink
 from crosspad_hil.console import Console
 from crosspad_hil.errors import HilError
 from crosspad_hil.scenarios import register
+from crosspad_hil.scenarios._low_water import DMA_FLOOR, INT_FLOOR, LowWater
 from crosspad_hil.scenarios.base import Artifact, Context, Progress, Report
 
 # from hil_app_churn.DEFAULT_SKIP: apps that are not a "visit" — they power the
@@ -93,6 +99,14 @@ class Params:
         # default hide the next 56 B one.
         metadata={"help": "per-visit internal-heap loss that counts as a leak"},
     )
+    int_floor: int = field(
+        default=INT_FLOOR,
+        metadata={"help": "fail if internal free heap ever fell under this many bytes "
+                          "(MEM int_min; 0 = report only)"})
+    dma_floor: int = field(
+        default=DMA_FLOOR,
+        metadata={"help": "fail if DMA-capable free heap ever fell under this many bytes "
+                          "(MEM dma_min; 0 = report only)"})
 
 
 def slope(series: list[int]) -> tuple[float, float, int, float] | None:
@@ -167,7 +181,8 @@ def _seed_kit_if_needed(ctx: Context, link: CdcLink) -> None:
         ctx.log(f"kit seed failed ({e.code}: {e.message}) — kit-backed apps may refuse to launch")
 
 
-def _report(data: dict[str, Any], console_log: str, leak_bytes: int) -> Report:
+def _report(data: dict[str, Any], console_log: str, leak_bytes: int,
+            low_water: LowWater) -> Report:
     lines: list[str] = ["--- per-app free-heap trend " + "-" * 32]
     leaks: list[str] = []
     unmeasured: list[str] = []
@@ -206,7 +221,10 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int) -> Report:
     data["slopes"] = slopes
     data["leaks"] = leaks
     data["unmeasured"] = unmeasured
-    failures = list(data["failures"]) + leaks
+    lw_lines, lw_failures = low_water.judge()
+    lines.extend(lw_lines)
+    data["low_water"] = low_water.as_data()
+    failures = list(data["failures"]) + leaks + lw_failures
     lines.append("")
     if failures:
         lines.append(f"FAIL — {len(failures)} problem(s):")
@@ -222,7 +240,8 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int) -> Report:
                          f"{len(unmeasured)} app(s) at these rounds (needs 4+): "
                          + ", ".join(unmeasured))
         else:
-            lines.append(f"PASS — no crashes, no per-app heap slope over {leak_bytes} B/visit")
+            lines.append(f"PASS — no crashes, no per-app heap slope over {leak_bytes} B/visit, "
+                         "heap low-water above the floors")
         passed = True
     lines.append(f"console log: {console_log}")
     return Report(
@@ -253,6 +272,7 @@ class AppChurnScenario:
             console = ctx.open_console(reset=False)
             link = ctx.open_cdc()
             watch = _ConsoleWatch(console)
+            low_water = LowWater(int_floor=params.int_floor, dma_floor=params.dma_floor)
             open_app: str | None = None
             # An app visited can leave audio state behind (a muted mixer channel, a codec
             # volume from the overlay); the next audio scenario would measure silence.
@@ -280,6 +300,7 @@ class AppChurnScenario:
                 # failing when it is the bench that is unprepared. Seed a kit so
                 # every app in the rotation is actually launchable.
                 _seed_kit_if_needed(ctx, link)
+                low_water.sample(verbs.mem(link))
 
                 skip = set(DEFAULT_SKIP if params.skip is None else params.skip)
                 if params.apps:
@@ -328,7 +349,9 @@ class AppChurnScenario:
                         # global heap and N apps in the rotation, the single
                         # leaking app's loss is smeared over all N, and no app
                         # crosses the threshold that would name it.
-                        free_before = int(verbs.mem(link)["int_free"])
+                        m_before = verbs.mem(link)
+                        low_water.sample(m_before, f"in the launcher before {app}, round {rnd}")
+                        free_before = int(m_before["int_free"])
                         try:
                             verbs.app_start(link, app, wait_s=START_WAIT_S)
                         except HilError as e:
@@ -352,9 +375,11 @@ class AppChurnScenario:
                                 ctx.log(f"   {f}")
                             what = "device fault" if fatal else "device rebooted"
                             failures.append(f"{app}: {what} on round {rnd} — see {console_log}")
-                            return _report(data, console_log, params.leak_bytes)
+                            return _report(data, console_log, params.leak_bytes, low_water)
 
-                        free_after = int(verbs.mem(link)["int_free"])
+                        m_after = verbs.mem(link)
+                        low_water.sample(m_after, f"{app} visit, round {rnd}")
+                        free_after = int(m_after["int_free"])
                         series = trend[app]
                         series.append((series[-1] if series else free_before)
                                       - (free_before - free_after))
@@ -363,6 +388,7 @@ class AppChurnScenario:
                     # the state machine is stuck, and every later measurement is noise.
                     running = verbs.app_list(link)["running"]
                     m = verbs.mem(link)
+                    low_water.sample(m, f"end of round {rnd}")
                     heap_now = int(m["int_free"])
                     psram = (f"  psram_free={m.get('psram_free')}"
                              f" psram_largest={m.get('psram_largest')}")
@@ -370,7 +396,9 @@ class AppChurnScenario:
                         {"round": rnd, "free": m.get("psram_free"),
                          "largest": m.get("psram_largest")})
                     stuck = f" STUCK in {running}" if running else ""
-                    ctx.log(f"round {rnd:3d}/{params.rounds}  int_free={heap_now}{stuck}{psram}")
+                    marks = "".join(f"  {k}={m[k]}" for k in ("int_min", "dma_min") if k in m)
+                    ctx.log(f"round {rnd:3d}/{params.rounds}  int_free={heap_now}{marks}"
+                            f"{stuck}{psram}")
                     if running:
                         failures.append(
                             f"round {rnd}: device did not return to the launcher (in {running})"
@@ -378,7 +406,7 @@ class AppChurnScenario:
                         verbs.app_stop(link)
                         ctx.cancelled.wait(params.settle)
 
-                return _report(data, console_log, params.leak_bytes)
+                return _report(data, console_log, params.leak_bytes, low_water)
             finally:
                 if open_app is not None:
                     # An error between APP_START and APP_STOP left this visit's
