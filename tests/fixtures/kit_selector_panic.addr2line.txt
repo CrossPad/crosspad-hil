@@ -1,0 +1,13 @@
+0x40056f5d: ?? ??:0
+0x40379149: lv_memcpy at /home/user/platform-idf/managed_components/lvgl__lvgl/src/stdlib/clib/lv_string_clib.c:40
+0x420aa97d: lv_array_push_back at /home/user/platform-idf/managed_components/lvgl__lvgl/src/misc/lv_array.c:189 (discriminator 1)
+0x4208e2e7: lv_event_add at /home/user/platform-idf/managed_components/lvgl__lvgl/src/misc/lv_event.c:135
+0x4207b0c1: lv_obj_add_event_cb at /home/user/platform-idf/managed_components/lvgl__lvgl/src/core/lv_obj_event.c:105
+0x4201438b: kit_selector_pre_launch(crosspad_gui::ILvglApp*, _lv_obj_t*) at /home/user/platform-idf/main/gui/gui.cpp:89
+0x4205979a: crosspad_gui::AppOrchestrator::onAppSelected(void*, _lv_obj_t*) at /home/user/platform-idf/components/crosspad-gui/src/components/app_orchestrator.cpp:100
+0x42014e9a: async_app_start(void*) at /home/user/platform-idf/main/hil_control.cpp:79
+0x4208df07: lv_async_timer_cb at /home/user/platform-idf/managed_components/lvgl__lvgl/src/misc/lv_async.c:107
+0x4208fd62: lv_timer_exec at /home/user/platform-idf/managed_components/lvgl__lvgl/src/misc/lv_timer.c:327
+ (inlined by) lv_timer_handler at /home/user/platform-idf/managed_components/lvgl__lvgl/src/misc/lv_timer.c:107
+0x4208febd: lv_timer_handler at /home/user/platform-idf/managed_components/lvgl__lvgl/src/misc/lv_timer.c:71
+0x42031c91: lvgl_port_task at /home/user/platform-idf/managed_components/espressif__esp_lvgl_port/src/lvgl9/esp_lvgl_port.c:242

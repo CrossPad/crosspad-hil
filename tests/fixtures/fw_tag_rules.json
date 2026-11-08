@@ -1,0 +1,41 @@
+{
+  "about": "Release tag rules shared by CI (platform-idf tools/make_fw_package.py), crosspad.app (crosspad server/lib/firmware/device.ts) and the bench server (crosspad-hil crosspad_hil/fw_server.py). Copied verbatim into crosspad test/fixtures/fw-tag-rules.json and crosspad-hil tests/fixtures/fw_tag_rules.json: change all three together.",
+  "channel": {
+    "v1.3.0": "stable",
+    "v10.20.30": "stable",
+    "v1.3.0-rc1": "beta",
+    "v1.1.0-fwstore.3": "beta",
+    "v10.0.1-beta.2+x": "beta"
+  },
+  "tag_max": 23,
+  "accepted": [
+    "v1.3.0",
+    "v1.3.0-rc1",
+    "v1.1.0-fwstore.3",
+    "v10.0.1-beta.2+x",
+    "v1.0.0-abcdefghijklmnop",
+    "v1.3.0-rc1+b.7",
+    "v65535.0.0",
+    "v1.3.0-a-.b"
+  ],
+  "refused": [
+    "v1.0.0-abcdefghijklmnopq",
+    "v1.0.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "1.3.0",
+    "v1.3",
+    "v1.3.0-",
+    "v1.3.0 x",
+    "v1.3.0/../x",
+    "v1.3.0-.",
+    "v1.3.0-+",
+    "v1.3.0+",
+    "v1.3.0-rc1+",
+    "v1.3.0-.rc1",
+    "v1.3.0-rc1.",
+    "v1.3.0-rc..1",
+    "v1.3.0-rc1+b..7",
+    "v65536.0.0",
+    "v1.3.0-rc.-dirty",
+    "v1.3.0-rc.-5-gabcd"
+  ]
+}

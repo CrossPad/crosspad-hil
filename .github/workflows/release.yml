@@ -1,0 +1,100 @@
+name: release
+
+# Publishes crosspad-hil to PyPI with Trusted Publishing (OIDC): no API token
+# lives in this repository or in its secrets. PyPI trusts this file by name.
+#
+# - push of a tag v*   -> build, check, publish to PyPI (environment "pypi")
+# - manual run         -> build, check, publish to TestPyPI (environment "testpypi")
+#
+# One-time setup, by the owner:
+# 1. pypi.org -> Your projects -> Publishing -> "Add a new pending publisher":
+#    project crosspad-hil, owner CrossPad, repository crosspad-hil,
+#    workflow release.yml, environment pypi.
+#    Same on test.pypi.org with environment testpypi.
+# 2. GitHub -> Settings -> Environments: create "pypi" (protect it: required
+#    reviewer, deployment tags v*) and "testpypi".
+#
+# The tag must match crosspad_hil.__version__ (v1.8.0 <-> "1.8.0"), or nothing
+# is published. Trusted Publishing does not work from reusable workflows, and
+# runs on GitHub-hosted runners here, not on the bench (CI_RUNNER).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: python -m pip install -U pip build twine
+      - name: Tag matches version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(python -c "import re,pathlib; print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('crosspad_hil/__init__.py').read_text()).group(1))")
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match __version__ ${version}"
+            exit 1
+          fi
+      - name: Build sdist and wheel
+        run: python -m build
+      - name: Check metadata
+        run: python -m twine check --strict dist/*
+      - name: Package data present
+        run: |
+          unzip -l dist/*.whl | grep -q 'crosspad_hil/knowledge/cdc.yaml'
+          unzip -l dist/*.whl | grep -q 'crosspad_hil/knowledge/sysex.yaml'
+          unzip -l dist/*.whl | grep -q 'crosspad_hil/knowledge/markers.yaml'
+      - name: Wheel installs and runs
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install dist/*.whl
+          /tmp/smoke/bin/crosspad-hil --help > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-testpypi:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/crosspad-hil
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  publish-pypi:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/crosspad-hil
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

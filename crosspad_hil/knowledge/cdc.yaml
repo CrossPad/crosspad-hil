@@ -1,0 +1,250 @@
+# CDC text verbs on the ESP native USB CDC (0x303A:0x3456), default profile only.
+# Authoritative source: platform-idf/main/hil_control.cpp (hil_control_handle_cdc),
+# main/audio_route_control.cpp (audio_route_control_handle_cdc), main/ota_cdc.cpp,
+# main/usb_config_manager.cpp, main/main.cpp (check_usb_bootloader_request),
+# main/reset_log.cpp (RESET_LOG / COREDUMP_INFO formatting).
+#
+# args:    "name:type" (int|str); a trailing "?" marks an optional argument.
+# reply:   the prefix of the reply line ("KITSTATUS:"), "OK" for verbs that answer
+#          OK/ERR, "multi" for multi-line replies (first-line prefix in `prefix`),
+#          or null when the device produces no reply because it reboots/re-enumerates.
+# end:     for multi replies, the line prefix that terminates the reply; null means
+#          "read until 200 ms idle".
+# continuation: true when the reply goes on in lines that start with a space
+#          (RESET_LOG's " #n" rows, COREDUMP_INFO's " bt:" / " exc:"); CdcLink
+#          collects them into Reply.more_lines instead of losing them.
+# profile: USB profile the verb exists in. Everything here is default-profile only.
+#
+# Traps the client must not rely on: unknown commands are echoed back; "OK" is
+# never the ack of *your* command under traffic; the device matches by prefix in
+# a fixed order (MEM_BLOCKS before MEM, PAD_STATS_RESET before PAD_STATS,
+# "BLE_SCAN %d" before BLE_SCAN, "ENC_PRESS %d" before ENC_PRESS).
+
+verbs:
+  # -- apps ----------------------------------------------------------
+  APP_LIST:        {args: [], reply: "APPS:", end: null, profile: default}
+  APP_VERSIONS:    {args: [], reply: multi, prefix: ["APPVER:", "LIBVER:", "BOARD:"], end: "APPVER: end", profile: default}   # LIBVER: core=… gui=… stm_proto=have/want; BOARD: fw=<rev> pcb=<n|-> (hardware/firmware revision from bcdDevice, row absent on firmware that predates it)
+  APP_START:       {args: ["name:str"], reply: "OK", end: null, profile: default}   # "%31s"; ERR unknown app
+  APP_STOP:        {args: [], reply: "OK", end: null, profile: default}   # ERR no_launcher before the launcher exists (the first seconds of a boot) and in transfer/network mode
+  APP_DESTROY:     {args: [], reply: "OK", end: null, profile: default}
+  APP_SELF_CLOSE:  {args: [], reply: "OK", end: null, profile: default}
+
+  # -- kits ----------------------------------------------------------
+  KIT_LIST:        {args: [], reply: multi, prefix: "KITS:", end: "KITS: end", profile: default}  # batched lines, then "KITS: end count=N current=M"; "ERR scanning" instead of the first row while listKits() is walking the card (boot scan, or an SD reinsert) — the scan grows the kit vector in place, so no reader may iterate it
+  KIT_STATUS:      {args: [], reply: "KITSTATUS:", end: null, profile: default}
+  KIT_LOAD:        {args: ["kit_id:int"], reply: "OK", end: null, profile: default}  # ERR bad kit id | ERR scanning (see KIT_LIST — the id came from a listing that is not final yet); the boot scan waits for the launcher, so retry rather than treating it as a failure
+  KIT_DELETE:      {args: ["kit_id:int", "name:str"], reply: "OK", end: null, profile: default}  # a USER kit (the Slicer's) off the card and out of the list, as the kit browser's "delete this kit"; the name must be that id's (an id from an old listing never takes another kit). ERR bad kit id | ERR name | ERR not_user | ERR playing; the removal runs on the LVGL thread, KIT_LIST says when it is gone
+  WAVE_STATUS:     {args: [], reply: "WAVE:", end: null, profile: default}   # waveform cache coverage + loader counters
+  SETTINGS_EXPORT: {args: ["path:str?"], reply: "OK", end: null, profile: default}   # "OK <path>" = the LVGL thread is writing the Settings → Backup JSON there (default /sdcard/crosspad-settings.json); "ERR busy" | "ERR path" (only /sdcard, /spiflash); poll SETTINGS_STATUS
+  SETTINGS_IMPORT: {args: ["path:str"], reply: "OK", end: null, profile: default}    # same envelope; the device validates, applies (brightness, LEDs, vibration, STM pad config) and persists; result in SETTINGS_STATUS
+  SETTINGS_STATUS: {args: [], reply: "SETTINGS:", end: null, profile: default}       # "SETTINGS: busy=0|1 op=e|i|- ok=-1|0|1 err=<text or -> path=<path or ->"
+  HOST_INFO:       {args: ["report:str?"], reply: "HOST:", end: null, profile: default}   # a host companion's report, "cpu=PCT ram=USED_MB/TOTAL_MB time=UNIX_S tz=MIN_EAST [daws=INSTALLED/RUNNING]" (bitmasks by DAW daw_id: what the hub can launch / sees running, DAW Control's launch button), sent every 2 s by the MIDI hub as a companion notify: sets the board clock and lights the status bar's USB glyph for 6 s; bare = query. "HOST: alive=0|1 age_ms=N|-1 cpu=N ram=U/T time=UNIX_S daws=I/R". Companion-allowed
+  FW_LATEST:       {args: ["version:str?"], reply: "FW_LATEST:", end: null, profile: default}   # newest firmware the host knows of (x.y.z); PERSISTED (NVS host_info/fw_latest) — Settings → Info and DAW Control say an update is waiting until the running version catches up; bare = query. "FW_LATEST: latest=x.y.z|- running=<describe> update=0|1". Companion-allowed
+  KIT_SWAP_LOG:    {args: [], reply: multi, prefix: "KITSWAP:", end: "KITSWAP: end", profile: default}  # ring of the last 8 swaps, oldest first: "KITSWAP: seq=N kit=I ok=0|1 req_ms=N parse_ms=N done_ms=N gated_blocks=N gate_max_us=N gate_total_us=N gate_count=N [underruns=N noblock=N] deferred=0xMMMM forced=0xMMMM dropped_hits=N pads=<16 ints, ms from req when that pad reloaded, -1 = not reloaded>", then "KITSWAP: end count=N"; deferred = pads that waited for their sample to finish, forced = pads reloaded while still sounding; the row is parsed as key=value, so engine counters the firmware adds later arrive without a host change
+
+  # -- pads ----------------------------------------------------------
+  PAD_PRESS:       {args: ["idx:int", "vel:int?"], reply: "OK", end: null, profile: default}   # OK = queued to the hil_pad task, not played; "ERR busy" = its 32-deep queue is full (PAD_STATS inj_drop)
+  PAD_RELEASE:     {args: ["idx:int"], reply: "OK", end: null, profile: default}   # same queue as PAD_PRESS
+  PAD_PRESSURE:    {args: ["idx:int", "val:int"], reply: "OK", end: null, profile: default}   # same queue as PAD_PRESS
+  PAD_PAN:         {args: ["idx:int", "val:int"], reply: "OK", end: null, profile: default}   # val 0 left .. 64 middle .. 127 right — the press's left/right balance as the STM streams it (CC cc_pan+pad), to the active pad logic's onPadPan (core 1.17); same queue as PAD_PRESS
+  PAD_STATS:       {args: [], reply: "PADSTATS:", end: null, profile: default}
+  PAD_STATS_RESET: {args: [], reply: "OK", end: null, profile: default}
+  PAD_NOTES:       {args: [], reply: "PADNOTES:", end: null, profile: default}
+  PAD_INFO:        {args: ["idx:int"], reply: "PADINFO:", end: null, profile: default}
+  PAD_MIX:         {args: ["pad:int?", "vol:int?"], reply: multi, prefix: "PADMIX:", end: "PADMIX: end", profile: default}  # bare: the current kit's mix, "PADMIX: kit=N max=127|100 loading=0|1 name=<name>", a row per pad "PADMIX: pad=I vol=V pan=P sample=<first sample's file name or ->", then "PADMIX: end count=16"; with pad and vol (the kit's units, 0..max) answers OK and sets that pad live, as the Pad Mixer app's fader -- into the kit, not the card (KIT_SAVE). ERR scanning | ERR no kit | ERR args | ERR loading
+  KIT_SAVE:        {args: [], reply: "OK", end: null, profile: default}  # the current kit into its kit.json, on the LVGL thread as the Sampler saves; OK = queued, KIT_SAVE_STATUS says when it is written. ERR scanning | ERR no kit | ERR loading | ERR busy
+  KIT_SAVE_STATUS: {args: [], reply: "KITSAVE:", end: null, profile: default}  # "KITSAVE: busy=0|1 ok=-1|0|1 kit=N" -- ok=-1 = nothing saved yet (or this save still running)
+  STM_VPAD:        {args: ["rate_hz:int?", "count:int?", "hold_ms:int?", "mode:int?"], reply: "VPAD:", end: null, profile: default}  # STM-side virtual pad stimulus (note-on, pressure stream, note-off) on the real STM path; bare call or "STM_VPAD STOP" (OK reply) also accepted
+  MIDI_TRS:        {args: ["action:str?"], reply: "MIDI_TRS:", end: null, profile: default}  # STM TRS MIDI pair (STM 1.14): TYPE A|B, SKEW <0.1 %>, FLIP <seg> <1-in-N>, RESET, ROUTE <r0> <r1>|SAVED; answers type/skew/flip/route and the per-segment counters
+  MIDI_LOOP:       {args: ["action:str?"], reply: "MIDI_LOOP:", end: null, profile: default}  # ESP end of the MIDI loop test: CAPTURE 0|1, SEND <count> <rate>, STOP; answers capture/send counters
+
+  # -- encoder / UI --------------------------------------------------
+  ENC_ROTATE:      {args: ["delta:int"], reply: "OK", end: null, profile: default}
+  ENC_PRESS:       {args: ["ms:int?"], reply: "OK", end: null, profile: default}
+  ENC_FOCUS:       {args: [], reply: "ENCFOCUS:", end: null, profile: default}   # obj= idx= edit=0|1 text=; edit=1 = a turn changes the focused value, not the focus (firmware from 2026-10-06)
+  ENC_GROUP:       {args: [], reply: multi, prefix: "ENCGROUP:", end: null, profile: default}
+  ENC_STATE:       {args: [], reply: "ENC:", end: null, profile: default}
+  UI_STATE:        {args: [], reply: "UI:", end: null, profile: default}
+  LED_STATE:       {args: [], reply: "LEDS:", end: null, profile: default}
+
+  # -- memory / stats ------------------------------------------------
+  MEM:             {args: [], reply: "MEM:", end: null, profile: default}
+  MEM_BLOCKS:      {args: ["which:str?"], reply: multi, prefix: "MEMBLK:", end: "MEMBIG:", profile: default}   # internal RAM by default; "PSRAM" walks the PSRAM heap instead (the engine arena and the UI's budget)
+  CDC_STATS:       {args: [], reply: "CDCSTATS:", end: null, profile: default}   # rx cmds drop maxcmd_us maxgap_us; since 2.0 also stack_min/stack_verb (least main-task stack any command left free since boot, and which verb) and stack_last (what the previous command left), then maxcmd=<verb, may hold spaces>
+  OTA_PREFS:       {args: [], reply: "OTA_PREFS:", end: null, profile: default}   # read-only: "OTA_PREFS: auto_accept=0|1" -- 1 = an OTA over CDC is accepted without the on-screen Allow (set from the Firmware app)
+  LVGL_PROF:       {args: ["mode:int"], reply: multi, prefix: "LVGLPROF:", end: "LVGLPROF: end", profile: default}   # 1 arms the LVGL built-in profiler (64 kB trace) now, 2 arms it for the next frame that redraws > 20 kpx (one frame fits, a step does not), 0 stops it and dumps systrace rows; needs a build with LV_USE_PROFILER
+  LVGL_INV:        {args: [], reply: multi, prefix: "LVGLINV:", end: "LVGLINV: end", profile: default}   # every invalidated rectangle since the last read (x1 y1 x2 y2, oldest first, last 256), read-and-clear
+  LVGL_STATS:      {args: [], reply: "LVGLSTATS:", end: null, profile: default}   # refresh/render/flush-wait max+avg since the last read; read-and-clear
+  TASKS:           {args: [], reply: "OK", end: null, profile: default}   # FreeRTOS run-time stats print to the console, not CDC; read twice and diff
+
+  # -- reset black box -------------------------------------------------
+  IMU:             {args: [], reply: multi, prefix: "IMU:", end: "IMU: end", profile: default}   # fused pitch/roll (deg), gyro (dps), accel (g), temp, whether the IMU->MIDI mapping is on and how many messages it has sent; a second row drdy_line drdy samples read_fail says whether the LSM6DS3TR-C data-ready pulse drives the reads (drdy ~52/s) and whether they fail; a third row "events" counts what the part recognises itself (single_tap double_tap free_fall wake_up orientation, d6d = D6D_SRC axes ZH ZL YH YL XH XL as bits 5..0, still = gyro asleep after ~10 s without motion (drdy stops; off while IMU_MIDI is on), still_periods); a fourth row "tap_gate" says how the tap gate is doing (mutes = times the pad input asked for silence, taps_muted = knocks dropped inside a muted window, mute_ms_left) -- a pad struck with a finger shakes the case like a knock, so the driver ignores knocks for 400 ms after every hit and forgets any half-finished double with them
+  IMU_GESTURE:     {args: ["gesture:str"], reply: "OK", end: null, profile: default}   # TAP|DOUBLE_TAP|FREE_FALL|WAKE_UP|ORIENTATION|STILL — posts the gesture on the event bus as the IMU driver would (source CLI, orientation 0); the case cannot be knocked from the bench. DOUBLE_TAP flips the sampler's Advanced and DAW Control's keyboard/control layout
+  CLOCK_STATUS:    {args: ["reset:str?"], reply: "CLOCK:", end: null, profile: default}   # MIDI clock: src=host|int (host = a USB host's 0xF8 arrived within 1 s), bpm, running (click transport), ticks_in (host ticks), ticks_out (ticks sent to BLE + STM, forwarded or generated), last_gap_us, max_jitter_us (host tick vs the tempo fit), max_late_us (generator send vs due), restarts (generator stalls longer than a period); RESET clears gap, jitter and late after the read
+  IMU_THS:         {args: ["tap:int", "wake:int"], reply: "OK", end: null, profile: default}   # LSM6DS3TR-C tap (0-31, x62.5 mg) and wake-up (0-63, x31.25 mg) thresholds, not persisted; defaults 6 and 16. The wake-up threshold must stay ABOVE the tap threshold or the part reports no taps at all (shared slope comparator, measured 17.09). While the part is still the driver drops wake-up to 2 by itself. Defaults since 17.09: tap 2 (125 mg), wake 8. The part's own double-tap machine is OFF (SINGLE_DOUBLE_TAP clear): every knock is a single tap and the driver pairs two within 500 ms into a double, so DUR in INT_DUR2 does nothing
+  IMU_REG:         {args: ["addr:str", "len:int?"], reply: "IMUREG", end: null, profile: default}   # raw register read, hex addr <= 7F, len <= 64; reading a latched source (1B..1D) clears it
+  IMU_REGW:        {args: ["addr:str", "value:str"], reply: "OK", end: null, profile: default}   # raw register write (hex), bench experiments only -- the next boot or recovery restores the driver values
+  IMU_MIDI:        {args: ["on:int"], reply: "OK", end: null, profile: default}   # also IMU_MIDI SLOT idx src tgt cc ch inv span   # 0|1, persisted in cfg_imu_midi; the feeder task exists only while on
+  HEAP_TRACE:      {args: ["what:str"], reply: multi, prefix: "HEAP_TRACE:", end: "HEAP_TRACE: end", profile: default}   # START [records] | STOP | DUMP [min_bytes] [ALL]; standalone heap tracing in LEAKS mode, internal RAM unless ALL (then PSRAM too, up to 512 groups), grouped by the first two callers, largest first -- resolve pc= with xtensa-esp32s3-elf-addr2line -e build_v2/CrossPad.elf. Rows only for DUMP; the trailer carries records= and on=
+  WORKER:          {args: [], reply: multi, prefix: "WORKER:", end: "WORKER: end", profile: default}   # one row per bsp_worker job: name period runs last_us max_us overruns; the housekeeping loops (softoff, pad_anim, imu_midi, sd_hotplug, perfmon) run from one task since 10.09; the IMU has its own data-ready driven task since 17.09, and overruns>0 or a max_us near the period says a job is too slow for it
+  ULP:             {args: [], reply: "ULP:", end: null, profile: default}   # the ULP RISC-V coprocessor program (bsp_ulp.h): running period_ms heartbeat; heartbeat rising ~1000/period_ms per second proves it runs beside the main CPU
+  TOUCH_TRACE:     {args: ["what:str"], reply: multi, prefix: "TOUCH_TRACE:", end: "TOUCH_TRACE: end", profile: default}   # ON|OFF|CLEAR|DUMP; the panel's own coordinate stream, tapped under LVGL's object layer (its gesture detector gives up on any scrollable). One reply shape for all four: rows only for DUMP, always the trailer, which also carries swipes=<recognised> last=<right|left|down|up|none> -- that is what tells "the gesture was not recognised" apart from "recognised, and the action did nothing"
+  TOUCH_DRAG:      {args: ["from_x:int", "from_y:int", "to_x:int", "to_y:int", "ms:int", "rest_ms:int?"], reply: "OK", end: null, profile: default}   # a synthetic contact through the panel's read path (trace, swipe recogniser and LVGL all see it): press at from_x,from_y, move to to_x,to_y over ms, rest rest_ms, release. Replies at once; the contact takes ms+rest_ms after. ERR TOUCH busy while one plays
+  TOUCH_TAP:       {args: ["x:int", "y:int", "hold_ms:int?"], reply: "OK", end: null, profile: default}   # a TOUCH_DRAG that does not move; hold_ms defaults to 80
+  TOPBAR:          {args: [], reply: "TOPBAR:", end: null, profile: default}   # transport=<1 transport page|0 status> scroll=<row scroll, 0 or 320> drawer=<0|1> focus=<screen|transport|arrow|none> swipe=<last screen-wide swipe> swipes=<count> map=<MODE map up> pads=<active pad logic>
+  UI_TREE:         {args: [], reply: multi, prefix: "UITREE:", end: "UITREE: end", profile: default}   # rows "UITREE: i= p= cls= x= y= w= h= int= hit=<a press on its middle reaches it> chk= dis= foc= text=<rest of line>" (crosspad-gui ui_tree_probe: visible widgets of the screen and the top layer, pre-order, LCD pixels), then "UITREE: end n= running=<app|->"
+  SETTINGS_RESET:  {args: ["force:str"], reply: "SETTINGS_RESET:", end: null, profile: default}   # needs the literal FORCE; erases all ten cfg_* NVS namespaces and reboots, so the next boot shows the *defaults* — the only way to observe a default on a board that already saved the key
+  RESET_LOG:       {args: ["mode:str?"], reply: "RSTLOG:", end: null, continuation: true, profile: default}  # bare = ring dump; "STM" replies RSTSTM: (live STM counters); "CLEAR" wipes ring+coredump, replies OK
+  COREDUMP_INFO:   {args: [], reply: "COREDUMP:", end: null, continuation: true, profile: default}
+  RESET_TEST:      {args: ["how:str"], reply: "OK", end: null, profile: default}   # how = panic|wdt|stmwd; device reboots (or pauses the STM heartbeat) right after the OK
+  STM_REG:         {args: ["hexaddr:str", "len:int?"], reply: "REG", end: null, profile: default}  # raw STM32 register-map read via I2C; ERR STM_REG on bad args, ERR i2c on bus failure
+
+  # -- assets image + arbitrary files (main/file_transfer.cpp) ----------
+  # ASSETS_BEGIN and FS_PUT switch the pipe out of newline framing for exactly
+  # <size> bytes, the same exemption cdc_dispatch_lines() makes for OTA. Use
+  # crosspad_hil.fs, which owns that handshake; a raw transact() cannot.
+  ASSETS_BEGIN:    {args: ["size:int", "crc:str", "force:str?"], reply: "ASSETS_READY", end: null, profile: default}  # then payload, "OK n/size" per 4096 B, ASSETS_OK (device reboots) or ASSETS_ERROR <reason>
+  FS_PUT:          {args: ["size:int", "crc:str", "path:str"], reply: "FS_READY", end: null, profile: default}        # then payload; FS_OK <crc32hex> or FS_ERR <reason>
+  FS_GET:          {args: ["off:int", "len:int", "path:str"], reply: "FS_DATA", end: null, profile: default}            # off/len lead so the path may contain spaces; len 0 = whole file. Then <len> raw bytes, then FS_OK <crc32hex> / FS_TRUNC got/len
+  ASSETS_DUMP:     {args: ["off:int", "len:int"], reply: "FS_DATA", end: null, profile: default}                     # raw partition read (flash, not the mounted fs); same payload+trailer shape as FS_GET, and what comes back is what ASSETS_BEGIN takes
+  FS_LIST:         {args: ["dir:str"], reply: multi, prefix: "FS_LIST:", end: "FS_END", profile: default}    # rows "FS_LIST: F|D <size> <name>"
+  FS_ROOTS:        {args: [], reply: multi, prefix: "FS_ROOTS:", end: "FS_END", profile: default}            # rows "FS_ROOTS: <mount> <total> <used>", "-" when not mounted
+  FS_STAT:         {args: ["path:str"], reply: "FS_STAT", end: null, profile: default}       # "<size> F|D"
+  FS_MKDIR:        {args: ["path:str"], reply: "OK", end: null, profile: default}
+  FS_DELETE:       {args: ["path:str"], reply: "OK", end: null, profile: default}
+
+  # -- audio ---------------------------------------------------------
+  MIX_LVL:         {args: [], reply: multi, prefix: "MIXLVL:", end: "MIXLVL: end", profile: default}   # per-channel + per-output mixer meters, route/vol/mute — DEBUG (speaker-silent hunt)
+  MIX_MUTE:        {args: ["ch:int", "on:int"], reply: "OK", end: null, profile: default}   # a mixer channel's mute (MIX_LVL numbering), as the Mixer's M button; the desk is saved (survives a reboot); ERR on a bad channel or value
+  MIX_VOL:         {args: ["ch:int", "pct:int"], reply: "OK", end: null, profile: default}   # a mixer channel's level, linear percent 0..100 (100 = unity, MIX_LVL vol=1.00), as the Mixer's fader; saved
+  MIX_OUT_MUTE:    {args: ["out:int", "on:int"], reply: "OK", end: null, profile: default}   # a mixer output's mute; saved
+  MIX_OUT_VOL:     {args: ["out:int", "pct:int"], reply: "OK", end: null, profile: default}   # a mixer output's level, linear percent 0..100; saved
+  AUDIO_LEVEL:     {args: [], reply: "AUDIOLVL:", end: null, profile: default}
+  INGAIN:          {args: ["input:int?", "db:int?"], reply: "INGAIN:", end: null, profile: default}   # "INGAIN: IN1=<dB> IN2=<dB>"; IN1 mics (codec0), IN2 line-in jack (codec1); a set persists in NVS; ERR INGAIN none without the control
+  AUDIO_STATUS:    {args: [], reply: "AUDIO:", end: null, profile: default}
+  AUDIO_ADC:       {args: ["codec:int", "input:str"], reply: "OK", end: null, profile: default}
+  AUDIO_MIC_SRC:   {args: ["codec:int"], reply: "OK", end: null, profile: default}
+  AUDIO_OUT:       {args: ["codec:int", "output:str"], reply: "OK", end: null, profile: default}
+  AUDIO_VOL:       {args: ["codec:int", "vol:int"], reply: "OK", end: null, profile: default}
+  AUDIO_MUTE:      {args: ["codec:int", "mute:int"], reply: "OK", end: null, profile: default}
+  AUDIO_TASKS:     {args: ["on:int"], reply: "OK", end: null, profile: default}
+  AUDIO_RATE:      {args: ["hz:int?"], reply: "AUDIO_RATE:", end: null, profile: default}   # 44100|48000, PERSISTED (audioEngine.sampleRate); the I2S clock follows on reboot
+  DAW_STATE:       {args: [], reply: "DAW:", end: null, profile: default}   # running=0|1 connected=0|1 daw=N mode=N transport=bits beat=N beats=N row0="…" row1="…" row2="…" — what DAW Control shows; `beat` is consumed by the 50 ms flash so sample `beats` (count of non-zero beat frames) instead (present only when the crosspad-dawcontrol app is built in)
+  SYSEX_ECHO:      {args: ["on:int?"], reply: "SYSEX_ECHO:", end: null, profile: default}   # 0|1, NOT persisted, off at boot: foreign-manufacturer SysEx (anything but 7D) from USB is sent straight back to the host. A DAW under Wine only hears MIDI whose ALSA source is the device it opened, so a host tool sharing the FL Studio script (fl-studio-mcp bridge, 7C) reaches it by bouncing off the board
+
+  # -- sequencer -----------------------------------------------------
+  # The metronome counts samples in the audio render, so CLICK's `pos` only
+  # advances while the RT mixer runs. Every form that passes <on> calls start(),
+  # and start() resets the position -- query with a bare CLICK, or the position
+  # is always 0 because you just zeroed it.
+  CLICK:           {args: ["on:int?", "bpm:int?", "bars:int?"], reply: "CLICK:", end: null, profile: default}   # "CLICK: running=0|1 bpm=F beats=N bars=N bar=N beat=N pos=N/N"; the click is routed to the speakers only, never to the USB capture bus, so it is not in a recording
+  SEQ:             {args: ["action:str?"], reply: "SEQ:", end: null, profile: default}   # bare SEQ reports; REC|OVERDUB|PLAY|STOP|CLEAR|SAVE|"SCENE n"|"BARS n"|"BARS scene n"|"QUANT n"|DOUBLE|HALF|"ERASE 0|1"|"COUNTIN 0|1" act first, then report. "SEQ: mode=N state=N scenes=N scene=A>P bars=a/b/../h ev=a/b/../h (all 8 scenes) bpm=F quant=N pos=F dirty=0|1 erase=0|1 countin=0|1 file=<path, may have spaces>" (mode 0 none 1 playback 2 record 3 overdub; state 0 idle 3 pre-beat (counting in) 4 running). Count-in is ON by default since core 1.21: a take started from a stop waits a bar -- send COUNTIN 0 first when a scenario records and hits at once. scene=A>P means A is sounding and P is queued: a switch is applied at the loop end, never when the command arrives, so expect A!=P for up to one loop. Scenes are alternatives, not layers -- only the active one sounds, and its bar count is the loop the click counts. Recording always targets the active scene. Scenes are not the kit's: one /sdcard/crosspad/sequences.json for every kit (since 26.09.2026), read when the first kit loads, a kit change keeps them; saved automatically, so dirty=1 clears by itself within ~500 ms unless a take is still running
+  SONG:            {args: ["action:str?"], reply: "SONG:", end: null, profile: default}   # the scene arrangement (song mode). "ADD s r"|"SET i s r"|"DEL i"|CLEAR|"PLAY [i]"|"LOOP 0|1" act first, then "SONG: mode= loop= len= pos= pass= scene= blocks=s:r,s:r,..."
+  ASONG:           {args: ["action:str?"], reply: "ASONG:", end: null, profile: default}   # the audio song (core 1.21 ISongEngine). "OPEN name"|"PLAY [bar]"|STOP|"ARM track" (the seq track REC/DUB take onto)|SEQTRACK (a kit track on the lowest free track, armed, pads' kit, route 0)|"KIT2 kitjson" (the same on a second kit, route 1; ok=0 when no track is free)|"BOUNCE scene track"|CANCEL|"LEN bars"|"SYNC 0|1"|"CUT track bar" (Arrange EDIT: the block across that bar in two, ok=0 when none)|DUPREGION (EDIT: the loop region x2) only ask (ok=1 = request taken); poll bare ASONG. "ASONG: ok= open= bpm= len= sync= play= pos= under= openfail= bounce= done= total= clips=a/b/c/d file=<clip|-> project=<name>[ err=<text>]" -- open 0 idle 1 busy 2 ready 3 unreadable (never saved over); bounce 0 idle 1 running 2 done 3 failed; under = silent blocks because the card fell behind; openfail = clip opens the card refused. Names last: project and err may contain spaces
+  SEQ_DUMP:        {args: [], reply: multi, prefix: "SEQDUMP:", end: "SEQDUMP: end", profile: default}   # "SEQDUMP: seq=N i=N pos=N pad=N vel=N" per recorded event, positions in samples from the loop start and already quantised; injected PAD_PRESS records like a played pad, so a scenario can record a pattern and check the grid without listening to it
+
+  # -- sampler -------------------------------------------------------
+  # The native engine (crosspad-core src/sampler, platform SamplerEnginePort) plays every
+  # sampler kit. The prebuilt "marcel" streamer is compiled out of the default image
+  # (platform Kconfig CROSSPAD_SAMPLER_MARCEL, 2026-10-09); SMPL_ENGINE's engines= says
+  # which engines an image has. Verbs that only the prebuilt one had answer
+  # "ERR only_native" in an image without it (SMPL_POOL, SMPL_BKG, SMPL_PREVIEW).
+  SMPL_PEAK:       {args: [], reply: "SMPLPEAK:", end: null, profile: default}   # "SMPLPEAK: <peak> free=N poly=N rt_max_us=N rxskip=N noblock=N underrun=N unpaced=N rt_busy_max_us=N overruns=N"; peak = loudest of the sample engines (int16), read-and-clear; free/poly/rt_max_us are the engine that holds the kit (native: free = SampleStore slots left of 64, -1 when no kit is taken; poly = its voice cap); rxskip = codec reads skipped, unpaced = render passes no output took (anything but 0 is a fault); rt_busy_max_us read-and-clear, overruns since boot. load_main=/load_bknd=/maxc_main=/maxc_bknd= are gone (they were always nan, and asking a stopped prebuilt engine crashed)
+  SMPL_LAST:       {args: [], reply: "SMPLLAST:", end: null, profile: default}
+  SMPL_POLY:       {args: ["total:int?", "streaming:int?"], reply: "SMPLPOLY:", end: null, profile: default}   # the native engine's voice caps: "SMPLPOLY: max_voices=N max_streaming=N" (bare reports; 1..28 each, until the next kit take; 0/0 = no kit taken). An image with the prebuilt engine, while that engine holds the kit, takes "SMPL_POLY n" (0..17, its budget in WAV channels, 0 = the kit's) and answers OK. "ERR busy" while a kit take holds the engine's locks (tried 20 ms, the CDC task waits for nobody); verbs.smpl_poly retries
+  SMPL_PREVIEW:    {args: ["path:str"], reply: "OK", end: null, profile: default}   # the prebuilt engine's spare voice; ERR only_native without it
+  SMPL_ENGINE:     {args: ["engine:str?"], reply: "SMPLENG:", end: null, profile: default}   # bare: "SMPLENG: engine=native|marcel|none state=0..3 why=<text|-> kit=<id|-1> pitch=a,b,c slots=N complete=N head_kb=N heads_kb=N pool_kb=N pool_blocks=used/total peak=N voices=active/peak lim=streaming/limit notes=N drop=N steal=N norings=N underrun=N quiet=N rt_max_us=N noteon_max_us=N read_kb=N bg_stack_free=N preview=0..3 prev_pk=N engines=native[,marcel]" (state 0 idle 1 taking 2 ready 3 failed; kit = the kit manager id the engine holds; bg_stack_free = audio_bg stack high-water bytes; preview 0 idle 1 priming 2 playing 3 finished; rt_max_us and prev_pk read-and-clear). "SMPL_ENGINE native" answers "OK loading" and takes the kit on its own task (poll bare); "SMPL_ENGINE marcel" answers "OK marcel", or "ERR only_native" in an image without the prebuilt engine
+  SMPL_PITCH:      {args: ["pad:int", "semitones:int"], reply: "SMPLPITCH:", end: null, profile: default}   # pad 0..15, semitones -24..24: the pad editor's door -- the native engine takes it as a step, no file written; "SMPLPITCH: pad=N semi=N engine=native|marcel|none". Where the engine cannot take a step the pad is marked modified and the kit loader rebuilds it (KIT_STATUS), never the CDC task
+  SMPL_POOL:       {args: [], reply: "SMPLPOOL:", end: null, profile: default}   # the prebuilt engine's stream-block pool audit; ERR only_native without it (the native pool is in SMPL_ENGINE pool_blocks= / norings=)
+  SMPL_BKG:        {args: ["port:int"], reply: "OK", end: null, profile: default}   # 1 the port's BkgProc, 0 the library's (prebuilt engine); ERR lib_sha | ERR only_native
+
+  # -- pitched instrument engine (docs/subsystems/pitched-instrument.md) ----
+  PITCHED_STATUS:  {args: [], reply: "PITCHED:", end: null, profile: default}   # active=0|1 zones=N roots=a,b,… voices=active/max bank_kb=N rt_max_us=N steals=N [err=why]; err= is present ONLY after a failed load (spaces already underscores, so it stays one field) and disappears on the next load that works — a pitched kit whose bank failed unloads what was playing, so active=0 err=… is the shape of a pad that will make no sound
+  PITCHED_BENCH:   {args: ["iters:int?"], reply: multi, prefix: "BENCH:", end: "OK", profile: default}  # one "BENCH: name=value …" line per measurement (IFft 1024/2048/4096 fwd+inv, one Hermite voice render), then OK; the bench task yields a tick per iteration (idle-task watchdog), so a large iters needs a matching host timeout
+  ARENA:           {args: [], reply: "ARENA:", end: null, profile: default}   # cap_kb=N used_kb=N owner=native|marcel|pitched|none (an image without the prebuilt engine: native, or pitched while a pitched bank holds it; the native engine's arena is empty until a kit is taken) -- the one PSRAM block the two sample engines take turns owning; MEM cannot see inside it, everything in the arena counts as allocated to the general heap whichever engine is up
+
+  # -- instrument host (Pitch Play's engine, main/instrument_host.cpp) ---
+  INST_LOAD:       {args: ["path:str"], reply: "INST:", end: null, profile: default}   # a one-zone instrument from a logical WAV path, as Pitch Play's list does; "INST: OK" = the request was taken (poll INST_STATUS), "INST: ERR no_host"
+  INST_RELEASE:    {args: [], reply: "INST:", end: null, profile: default}   # hand the engine back to the kits; "INST: OK"
+  INST_STATUS:     {args: [], reply: "INST:", end: null, profile: default}   # "INST: state=idle|busy|ready|failed owned=0|1 last_ms=N msg=<text, spaces as _ | ->"
+
+  # -- render and output diagnostics ---------------------------------
+  UAC_STATS:       {args: [], reply: "UACSTATS:", end: null, profile: default}   # the USB-audio rings: "UACSTATS: active= under= refused= ring= ring_min= spk_gap_max_us= fifo_max=N/N capdrop= cap_ring= asrc_ppm= asrc_cyc_max= asrc_read= asrc_loop=" (under = playback underruns since the stream started; asrc_* = the playback resampler's ratio and cost); minima and maxima reset on read; also over the companion SysEx
+  SD_TRACE:        {args: [], reply: "SDTRACE:", end: null, profile: default}   # every card transaction since the last call, by task, one line: "SDTRACE: | R|W <task> calls= sectors= ext= single= busy_us= avg_us= max_us= ..." (task: audio_bg, song_io, kit_load, lvgl, other; ext = to/from PSRAM, single = one-sector commands); reads and clears; also over the companion SysEx
+  SD_BOUNCE:       {args: ["on:int"], reply: "OK", end: null, profile: default}   # the card's sector bounce on (default) or off, for an A/B
+  RT_PROF:         {args: ["on:int?"], reply: "RTPROF:", end: null, profile: default}   # "RT_PROF 1" starts, "RT_PROF 0" stops (both OK); bare reads and clears: an "RTPROF:" line (the render pass, span by span) then a "MIXPROF:" line (the mixer's channels)
+  OUTVOL:          {args: ["out:int?", "pct:int?"], reply: "OUTVOL:", end: null, profile: default}   # "OUTVOL out(1|2) pct(0..100)" sets (OK); bare: "OUTVOL: out1=N out2=N spk_amp=on|off" -- out1 = line out = codec 1, out2 = phones = codec 0, the speakers ride out2
+  MIX_EQ:          {args: ["spec:str?"], reply: multi, prefix: "MIXEQ:", end: "MIXEQ: end", profile: default}   # "MIX_EQ out ON|OFF|FLAT", "MIX_EQ out band OFF", "MIX_EQ out band PEAK|LOSHELF|HISHELF|HP|LP hz [db*10] [q*100]" set (OK); bare: "MIXEQ: out=N on=0|1 live=0|1 b0=kind/hz/db10/q100 .. b3=…" per output, then "MIXEQ: end"
+  HEAP_CHECK:      {args: ["spec:str?"], reply: "HEAPCHK:", end: null, profile: default}   # walks every heap: "HEAPCHK: ok=0|1 watch=0|1"; "HEAP_CHECK WATCH 1" puts the walk on a worker that logs the first failure
+  TBAR:            {args: [], reply: multi, prefix: "TBAR:", end: "TBAR: end", profile: default}   # the transport bar's readouts: "TBAR: <id> x= y= w= h= text=<label>" each, then "TBAR: end" ("TBAR: none" when no bar is up)
+
+  # -- browser twin and motion stream (platform-idf docs/subsystems/twin-protocol.md) --
+  TWIN:            {args: ["on:int"], reply: "OK", end: null, profile: default}   # the twin's keepalive: "TWIN 1" mirrors the LVGL inputs as SysEx 1F 09 frames for 6 s, "TWIN 0" stops; a host repeats it every 2 s (as a companion notify 04). USB only: ERR twin_usb_only over BLE, ERR not_remote over the WiFi remote
+  TWIN_HELLO:      {args: [], reply: "TWIN_HELLO", end: null, profile: default}   # "TWIN_HELLO proto=<n> src=<12 hex> ver=<app version>": the twin protocol and the source id of what the screen is built from (tools/twin_source_id.cmake); a twin built from the same sources carries the same pair. ERR TWIN not_ready before the GUI is up
+  TWIN_STATE:      {args: [], reply: "TWIN_STATE", end: null, profile: default}   # one line, at most 470 bytes: "TWIN_STATE tick= app= cfg= hash= geo= ovl= focus= scroll= lvl= st= ar= sc= host= fwl= song= set= ble= imu=" -- the twin's safety net, built by twin_state.h describe()
+  MOTION:          {args: ["on:int"], reply: "OK", end: null, profile: default}   # "MOTION 1" sends the IMU as SysEx 1F 0A frames (a sample ~50 Hz: accel mg, gyro dps*4, pitch/roll deg*40, each v+8192 in two 7-bit bytes; IMU events; OTA progress) for 6 s, "MOTION 0" stops; USB only, like TWIN
+
+  # -- clip launcher (song engine live transport) --------------------
+  CLIP:            {args: ["action:str?"], reply: multi, prefix: "CLIP:", end: "CLIP: end", profile: default}   # "LAUNCH track file [bars]" | "STOP [track]" | "Q bars" act (OK / ERR CLIP …); bare: a status line, "CLIP: t=N vol=F mute=0|1 bars=N loop=N phase=N stop=0|1 pend=<file|-> file=<file|->" per track, then "CLIP: end"
+  ASONG_SEQ:       {args: ["track:int?"], reply: multi, prefix: "ASEQ:", end: null, profile: default}   # a seq track's blocks (the first seq track's without an argument): one "ASEQ: bar= bars= from= notes= own=" row each (own=1 notes of their own, 0 the scene's), then the trailer "ASEQ: track= take= punchable= edit= route= armed=" (track -1 = none); "ASEQ: no engine" without a song engine. The reply has no end marker: read until idle. CDC only
+  KIT2:            {args: ["action:str?"], reply: "KIT2:", end: null, profile: default}   # a song's second kit (ISecondKit). Bare = "KIT2: state= active= want= have= why= slots= complete= head_kb= heads_kb= pool_kb= voices= stream= lim= notes= drop= steal= norings= underrun= pair= kit1_lim=a/b engine="; "NOTE pad vel" / "OFF pad" (pad 0..15) answer OK; ERR no_second_kit; any other argument ERR usage. Bare form is on the companion allowlist
+  STOOL:           {args: ["action:str?"], reply: "STOOL:", end: null, profile: default}   # the sample tools (Recorder): bare = the report (input, peaks, take, error), names last (file= err=); every argument acts (IN/REC/SYNC/DIR/STOP/RELEASE/LIST/OV/ONSETS/EQ/PLAY/SLICE/ATK/PITCH/PSTOP/SAVE/EXPORT/HANDOFF/FX), ERR STOOL no sample tools without them. Bare form is on the companion allowlist
+  ASONG_DBG:       {args: [], reply: "ASONGDBG:", end: null, profile: default}   # why a playing song can be silent: the song engine's debug line ("ASONGDBG: no engine" without one)
+
+  # -- BLE MIDI ------------------------------------------------------
+  BLE_STATUS:      {args: [], reply: "BLE:", end: null, profile: default}   # ... req=-|pending|ok|err|deferred: the last BLE_START/STOP/ENABLE job's outcome
+  BLE_DEVICES:     {args: [], reply: "BLEDEV:", end: null, profile: default}
+  BLE_START:       {args: ["mode:int?"], reply: "OK", end: null, profile: default}   # "OK queued": run on the LVGL thread; the outcome is BLE_STATUS req=ok|err|deferred (deferred = WiFi holds the radio; BLE starts by itself when it stops). Older firmware answered "OK" / "OK deferred=wifi" / "ERR" itself
+  BLE_STOP:        {args: [], reply: "OK", end: null, profile: default}   # "OK queued", done when BLE_STATUS req=ok
+  BLE_ENABLE:      {args: ["on:int"], reply: "OK", end: null, profile: default}   # 0|1, PERSISTED (wireless.enableBLE) and applied now; BLE_START/STOP are runtime only; "OK queued" and req= as BLE_START
+  USB_GUARD:       {args: ["on:int?"], reply: "USB_GUARD:", end: null, profile: default}   # answers "USB_GUARD: 0|1" (the state after an optional set); 0|1: PERSISTED (usbSerialGuard). On (the default): a host's SysEx 0x1B 01 request for the CDC profile raises Allow/Deny on the device (30 s, power click = Deny) — turn it off once on a bench board or every unattended `usb-mode set default` stops at the prompt
+  BLE_SCAN:        {args: ["ms:int?"], reply: "OK", end: null, profile: default}
+  BLE_CONNECT:     {args: ["addr:str"], reply: "OK", end: null, profile: default}
+  BLE_DISCONNECT:  {args: [], reply: "OK", end: null, profile: default}
+  BLE_TXOFF:       {args: ["semis:int"], reply: "OK", end: null, profile: default}
+  BLE_SEND:        {args: ["note:int", "vel:int?"], reply: "OK", end: null, profile: default}
+
+  # -- WiFi + network mode (platform-idf docs/subsystems/wifi.md) ------
+  NET_MODE:     {args: ["on:int?", "tab:str?"], reply: "NET_MODE:", end: null, profile: default}   # bare = "NET_MODE: active=0|1 tab=wifi|store|updates|-"; "0|1 [TAB=…]" answers "OK reboot=1" / "OK unchanged" (ERR transfer_mode from USB transfer mode) and reboots into/out of network mode -- no engine, no kits, no APP_LIST there, so CdcLink.wait_ready() never passes; reopen and ask NET_MODE (scenario wifi does)
+  WIFI_STATUS:  {args: [], reply: "WIFI:", end: null, profile: default}   # state=… ssid="<quoted, may hold spaces>" rssi=… ip=… leases=… fail=… reason=<last 802.11 disconnect reason> heap_int=… heap_init=… heap_low=… stack_free=… enabled=0|1 (persisted wireless.enableWiFi)
+  WIFI_ENABLE:  {args: ["on:int"], reply: "OK", end: null, profile: default}   # PERSISTED (wireless.enableWiFi); 0 stops a running link; in network mode the screen's lease follows it
+  WIFI_SET:     {args: ["ssid:str", "pass:str?"], reply: "OK", end: null, profile: default}   # quote an SSID with spaces; saves first, then connects; result via WIFI_STATUS
+  WIFI_LIST:    {args: [], reply: "WIFI_NET:", end: null, profile: default}
+  WIFI_FORGET:  {args: ["ssid:str"], reply: "OK", end: null, profile: default}
+  WIFI_FORGET_ALL: {args: [], reply: "OK", end: null, profile: default}   # every saved network erased (NVS + RAM) and a radio stopped if WiFi is off: the Settings factory reset's WiFi step; ERR no_task
+  WIFI_UP:      {args: [], reply: "OK", end: null, profile: default}   # CDC only (companion: ERR use_cdc -- over BLE the radio would strand BLE); the bench's one lease; ERR disabled; ERR no_mem (the gate)
+  WIFI_DOWN:    {args: [], reply: "OK", end: null, profile: default}   # CDC only (companion: ERR use_cdc)
+  WIFI_SCAN:    {args: [], reply: "WIFI_AP:", end: null, profile: default}   # CDC only (companion: ERR use_cdc); up to ~15 s; ERR no_mem when the radio cannot start
+  WIFI_PING:    {args: [], reply: "WIFI_PING:", end: null, profile: default}   # CDC only; up to ~30 s
+  REMOTE_STATUS: {args: [], reply: "REMOTE:", end: null, profile: default}   # WiFi remote (platform-idf docs/superpowers/specs/2026-10-08-wifi-remote-design.md): "REMOTE: state=off|waiting|no_wifi|connecting|online|backoff|unlinked reason=<token|-> peers=<n> queued=<n> done=<n> busy=<n> uri=<wss://…|->"; peers = browsers connected, queued/done/busy = relayed commands waiting / run / refused ERR busy; companion-allowed
+
+  # -- OTA / USB profile / bootloaders -------------------------------
+  OTA_BEGIN:       {args: ["size:int", "version:str"], reply: "OTA_", end: null, profile: default}
+  OTA_DELTA:       {args: ["size:int", "version:str"], reply: "OTA_", end: null, profile: default}
+  USB_AUDIO:       {args: [], reply: null, end: null, profile: default}
+  USB_DEFAULT:     {args: [], reply: null, end: null, profile: default}
+  BOOTLOADER_REQUEST: {args: [], reply: null, end: null, profile: default}
+  STM_DFU:         {args: [], reply: "OK", end: null, profile: default}
+  STM_RESET:       {args: [], reply: "OK", end: null, profile: default}   # hardware reset of the STM over the ESP's reset line (100 ms pulse); console and link drop for a moment, the ESP stays up — the reset a host can still reach when the STM sleeps in STOP1 with debug off
+  STM_FW_INFO:     {args: [], reply: "STM_FW", end: null, profile: default}   # running=<maj.min/proto> bundled=<maj.min/proto> size=N; running= is read once at ESP boot, so it is stale after an SWD/DFU flash of the STM until the ESP reboots -- STM_REG 0x0006 2 is the live answer
+  STM_FW_UPDATE:   {args: ["path:str?", "force:str?"], reply: "OK STM_FW", end: null, profile: default, timeout_s: 30}  # reflash the STM over UART from a file (default /assets/stm32_fw.bin); trailing FORCE overrides the PCB gate; ~10 s on a task of its own, which sends the reply (the CDC link stays free meanwhile), ERR STM_FW <esp_err>|busy
+  PWR_GESTURE:     {args: ["action:str"], reply: "OK", end: null, profile: default}  # CLICK|HOLD — injects a power-button gesture (the physical button cannot be pressed remotely); resolved back-context is logged under PWR_BTN, not in the reply
+
+  # -- firmware library / A/B switch (main/fw_slots.cpp, main/fw_library.cpp,
+  # main/fw_image_desc.c; docs/subsystems/firmware-library.md is the authority) --
+  FW_SLOTS:        {args: [], reply: multi, prefix: "FWSLOT:", end: "FWSLOT: rollback", profile: default}   # two rows "FWSLOT: slot=A|B running=0|1 state=empty|installed|trial|confirmed|rolledback pkg=<name>|- ver=<v>|- kit=<k>|-", then the trailer "FWSLOT: rollback=0|1" that ends the reply
+  FW_LIST:         {args: [], reply: multi, prefix: "FWPKG:", end: "FWPKG: count", profile: default}   # one row per package on the SD card "FWPKG: name=<name> kit=<kit> ver=<ver> rev=<n> size=<bytes> assets=0|1 settings=0|1 verdict=<text, may contain spaces>", then "FWPKG: count=<n>"; the scan walks up to 16 images off the card, allow >=15s (pass --timeout 15000 over the generic `cdc` command, whose own default is 2s). A busy scan or a task that could not start answers "FWPKG: ERR busy" / "FWPKG: ERR no task" *with* the FWPKG: prefix, unlike KIT_LIST's bare "ERR scanning" — not recognised as an error until this call's own timeout elapses, see verbs.fw_list
+  FW_INSTALL:      {args: ["name:str?", "force:str?"], reply: "FWINST:", end: null, profile: default}   # bare = poll: "FWINST: phase=idle|verifying|writing|done|failed percent=<0-100> error=<text>|-"; "<name> [FORCE]" instead starts the install asynchronously and answers "OK" / "OK warn=stm_proto_older" / "ERR <reason>" — pass --expect OK over the generic `cdc` command for that form, the declared reply above is the bare-poll shape
+  FW_SWITCH:       {args: [], reply: "OK", end: null, profile: default}   # "OK reboot=1" then the board restarts ~200 ms later — no second reply, reopen CDC and wait_ready() — or "ERR <reason>" when refused (running slot not confirmed yet, other slot empty/rolled back, install in progress, no task)
+  FW_CONFIRM:      {args: [], reply: "OK", end: null, profile: default}   # marks the running (still-trial) image valid now instead of waiting for the 10s timer; fire-and-forget, OK only proves the command arrived
+  APP_SHA:         {args: [], reply: "APPSHA:", end: null, profile: default}   # running image's app_elf_sha256, hex — compare with `sha256sum build_<rev>/CrossPad.elf` to catch a "flashed" that rolled back to the previous slot (LIBVER/commit can read identical across two builds of the same commit)
+  # -- firmware updates (platform-idf docs/subsystems/firmware-updates.md) --
+  FW_UPD_STATUS:   {args: [], reply: "FWUPD:", end: null, profile: default}   # "FWUPD: state=idle|checking|up_to_date|available|downloading|installing|ready_to_restart|failed running=<ver> kit=<kit> latest=<ver>|- channel=stable|beta progress=<0-100> last_check=<unix>|0 err=<token>|- stack_free=<bytes> inst_stack_free=<bytes> (0 until the first install)"; both modes; companion-allowed
+  FW_CHECK:        {args: [], reply: "OK", end: null, profile: default}   # starts a catalog check (both modes); answers at once: ERR busy while a job runs, ERR no_mem when the job task cannot start; the job takes the WiFi lease itself, a refused one (disabled|transfer_mode|no_mem) ends state=failed err=<why>; result via FW_UPD_STATUS
+  FW_CATALOG:      {args: ["kit:str?"], reply: "FWCAT:", end: null, profile: default}   # this boot's last fetch (both modes): "FWCAT: count=<shown> total=<matching> | <kit> <ver> <channel> <tier> <on_card 0|1> | ..."; one line capped at 448 B, filter by kit to see more; companion-allowed
+  FW_DOWNLOAD:     {args: ["kit:str", "version:str", "install:str?"], reply: "OK", end: null, profile: default}   # download (resumable, verified) into /sdcard/crosspad/firmware/<kit>-<version>/, INSTALL also writes the other slot; both modes; answers at once: ERR busy|blocked|bad_args|no_mem (job task); a refused WiFi lease ends state=failed err=disabled|transfer_mode|no_mem; progress via FW_UPD_STATUS
+  FW_UPD_CFG:      {args: ["settings:str"], reply: "OK", end: null, profile: default}   # [boot=0|1] (Check at startup, PERSISTED) [gc_mb=<n>] (the library limit in MB, bench only, RAM only; 0 = default 512 MB)
+  FW_UPD_CHANNEL:  {args: ["kit:str", "channel:str"], reply: "OK", end: null, profile: default}   # stable|beta per kit, PERSISTED
+  FW_UPD_URL:      {args: ["url:str"], reply: "OK", end: null, profile: default}   # base URL of /api/device/*, PERSISTED; DEFAULT = https://crosspad.app; http:// allowed (packages are signed)
+  FW_UI:           {args: [], reply: "FWUI:", end: null, profile: default}   # Firmware views: tab=library|store|updates|wifi|- sel=<index|-> card=<kit@version|-> items=<n> selkey=<kit@version|-> host=app|net|- store=ok|missing|format|other_board|- busy=0|1
+  USB_MSC:         {args: ["on:int?"], reply: "USB_MSC:", end: null, profile: default}   # bare = query: "USB_MSC: active=0|1 card=0|1 state=no_card|waiting|mounted|busy|ejected size_mb=N read_kb=N write_kb=N"; "0|1" instead answers "OK reboot=1" (or "OK unchanged") and reboots into/out of the SD-as-USB-drive boot mode. That mode is the MSC + CDC profile: CDC answers, but no app registry boots (APP_LIST is empty), and the host owns the card. A scenario goes there the way a person does (Settings → USB → Start) and leaves by the screen's "Exit and restart" (studio_session), not by this verb

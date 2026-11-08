@@ -1,0 +1,765 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2a (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x117c
+load:0x403c8700,len:0xc68
+load:0x403cb700,len:0x2f98
+entry 0x403c88c4
+I (326) octal_psram: vendor id    : 0x0d (AP)
+I (326) octal_psram: dev id       : 0x02 (generation 3)
+I (330) octal_psram: density      : 0x03 (64 Mbit)
+I (331) octal_psram: good-die     : 0x01 (Pass)
+I (333) octal_psram: Latency      : 0x01 (Fixed)
+I (337) octal_psram: VCC          : 0x01 (3V)
+I (341) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (346) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (351) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (356) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (361) octal_psram: DriveStrength: 0x00 (1/1)
+I (365) MSPI Timing: Enter psram timing tuning
+I (370) esp_psram: Found 8MB PSRAM device
+I (373) esp_psram: Speed: 80MHz
+I (401) mmu_psram: Read only data copied and mapped to SPIRAM
+I (478) mmu_psram: Instructions copied and mapped to SPIRAM
+I (478) cpu_start: Multicore app
+I (491) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (492) cpu_start: Pro cpu start user code
+I (492) cpu_start: cpu freq: 240000000 Hz
+I (494) app_init: Application information:
+I (497) app_init: Project name:     CrossPad
+I (501) app_init: App version:      v1.0.1-28-g56607a6-dirty
+I (507) app_init: Compile time:     Aug 25 2026 22:29:11
+I (512) app_init: ELF file SHA256:  14bf581c7...
+I (516) app_init: ESP-IDF:          v5.5.4
+I (520) efuse_init: Min chip rev:     v0.0
+I (524) efuse_init: Max chip rev:     v0.99 
+I (528) efuse_init: Chip rev:         v0.2
+I (532) heap_init: Initializing. RAM available for dynamic allocation:
+I (538) heap_init: At 3FCBA1D8 len 0002F538 (189 KiB): RAM
+I (543) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (548) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (553) heap_init: At 600FE038 len 00001FB0 (7 KiB): RTCRAM
+I (559) esp_psram: Adding pool of 6592K of PSRAM memory to heap allocator
+I (565) esp_psram: Adding pool of 35K of PSRAM memory gap generated due to end address alignment of drom to the heap allocator
+I (577) spi_flash: detected chip: generic
+I (580) spi_flash: flash io: qio
+I (583) ESP_TINYUSB_MIDI: EspTinyUsbMidiTransport constructor called
+I (589) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (595) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (602) main_task: Started on CPU0
+I (609) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+I (613) main_task: Calling app_main()
+I (1137) nvs_store: NVS initialized
+I (1154) usb_cfg_mgr: Initializing USB in default mode (CDC + MIDI)
+I (1154) tusb_desc: 
+┌─────────────────────────────────┐
+│  USB Device Descriptor Summary  │
+├───────────────────┬─────────────┤
+│bDeviceClass       │ 239         │
+├───────────────────┼─────────────┤
+│bDeviceSubClass    │ 2           │
+├───────────────────┼─────────────┤
+│bDeviceProtocol    │ 1           │
+├───────────────────┼─────────────┤
+│bMaxPacketSize0    │ 64          │
+├───────────────────┼─────────────┤
+│idVendor           │ 0x303a      │
+├───────────────────┼─────────────┤
+│idProduct          │ 0x3456      │
+├───────────────────┼─────────────┤
+│bcdDevice          │ 0x501       │
+├───────────────────┼─────────────┤
+│iManufacturer      │ 0x1         │
+├───────────────────┼─────────────┤
+│iProduct           │ 0x2         │
+├───────────────────┼─────────────┤
+│iSerialNumber      │ 0x3         │
+├───────────────────┼─────────────┤
+│bNumConfigurations │ 0x1         │
+└───────────────────┴─────────────┘
+I (1317) TinyUSB: TinyUSB Driver installed
+I (1320) usb_cfg_mgr: USB config manager initialized, mode: CDC + MIDI
+I (1328) EspLedStrip: LED strip initialized: 16 LEDs on GPIO 17 (remap: yes)
+I (1333) EspEventBus: Initialized (queue=64, core=1, prio=4)
+I (1341) CrosspadPlatform: Audio pipeline: mixer mode (Sampler→all outs, IN1/IN2 muted)
+I (1347) CrosspadPlatform: STM32 control plane: I2C @0x42 (rev2)
+I (1352) CrosspadPlatform: Platform fully initialized
+I (1357) audio_route: audio route control registered (SysEx cmd 0x1D)
+I (1366) CROSSPAD_S3: Setting up  GPIO pins
+I (1367) CROSSPAD_S3: Initializing STM32 communication subsystem via HAL
+I (1374) STM32_HAL: Initializing STM32 HAL
+I (1377) STM32_UART: Initializing STM32 UART communication
+I (1383) uart: ESP_INTR_FLAG_IRAM flag not set while CONFIG_UART_ISR_IN_IRAM is enabled, flag updated
+I (1392) uart: queue free spaces: 20
+I (1395) STM32_UART: STM32 UART initialized on TX:10, RX:9
+I (1400) STM32_I2C: STM32 I2C link up @0x42, 400000 Hz
+I (1405) STM32_I2C: STM32 ident: proto=0.11 fw=1.0 pcb=20
+I (1410) STM32_HAL: STM32 HAL initialized
+I (1435) CrosspadPlatform: STM32 framework wired and started
+I (1436) crosspad_main:   - STM32 UART2 communication: Ready
+I (1436) Drv2605: DRV2605 found — configuring LRA
+I (1440) crosspad_main:   - USB CDC ACM interface: Ready
+I (1444) crosspad_main:   - USB MIDI interface: Ready
+W (1449) BleMidi: BLE MIDI requested but NimBLE is not enabled in this build
+W (1456) MIDI: BLE MIDI failed to start (internal free 165811, largest 90100)
+I (1463) crosspad_main: Crosspad initialization complete
+I (1468) crosspad_main: Starting application...
+I (1472) crosspad_main: Initializing IMU...
+I (1476) BSP_IMU: Initializing LSM6DSO IMU on I2C
+I (1483) BSP_IMU: LSM6DSO device ID: 0x6A
+I (1486) BSP_IMU: LSM6DSO IMU initialized successfully
+I (1489) crosspad_main: IMU initialized successfully
+I (1494) BSP_IMU: IMU task started (update rate: 10 ms, priority: 5)
+I (1504) BSP_IMU: IMU task running
+I (1600) crosspad_main: IMU Test - Accel: X=-0.09 Y=-0.01 Z=-0.94 g
+I (1600) crosspad_main: IMU Test - Gyro: X=1.33 Y=-5.04 Z=-0.63 dps
+I (1601) crosspad_main: IMU Test - Temp: 64.88 °C
+I (1605) bsp_sdmmc: SDMMC host prepared: slot=0 max_freq=40000kHz
+I (1611) bsp_sdmmc: SDMMC SLOT_0 pin map: CLK=6 CMD=7 D0=5 D1=4 D2=16 D3=15 width=4
+I (1662) bsp_sdmmc: SD Card mounted successfully at /sdcard
+I (1662) crosspad_main: Initializing LittleFS
+I (1666) CROSSPAD_S3: Setting LCD backlight: 0%
+I (2251) KitLoader: Discovered 43 kits
+I (2307) LVGL: Starting LVGL task
+I (2307) CROSSPAD_S3: Setting LCD backlight: 5%
+I (2307) CROSSPAD_S3: Setting LCD backlight: 5%
+I (2308) ili9341: LCD panel create success, version: 2.0.2
+W (2412) ili9341: The 36h command has been used and will be overwritten by external initialization sequence
+W (2412) ili9341: The 3Ah command has been used and will be overwritten by external initialization sequence
+I (2561) PerfMon: 
+I (2561) PerfMon: ========== CrossPad Performance Report ==========
+I (2561) PerfMon: === Heap Statistics ===
+I (2562) PerfMon: Internal SRAM:
+I (2565) PerfMon:   Total:               289803 bytes
+I (2569) PerfMon:   Used:                176232 bytes (60%)
+I (2574) PerfMon:   Free:                113571 bytes
+I (2579) PerfMon:   Largest free block:   40948 bytes
+I (2584) PerfMon:   Min free ever:       113483 bytes
+I (2589) PerfMon:   Allocated blocks:       501
+I (2593) PerfMon:   Free blocks:              8
+I (2597) PerfMon:   Total blocks:           509
+I (2602) PerfMon: DMA-capable:
+I (2604) PerfMon:   Total:               281691 bytes
+I (2609) PerfMon:   Free:                105851 bytes
+I (2614) PerfMon:   Largest free block:   40948 bytes
+I (2619) PerfMon: PSRAM:
+I (2621) PerfMon:   Total:              6787052 bytes (6.5 MB)
+I (2626) PerfMon:   Used:                 91868 bytes (1%)
+I (2632) PerfMon:   Free:               6695184 bytes
+I (2636) PerfMon:   Largest free block: 6553588 bytes
+I (2641) PerfMon:   Min free ever:      6644584 bytes
+I (2646) PerfMon:   Allocated blocks:        20
+I (2650) PerfMon: 
+I (2652) PerfMon: 
+=== Task Stack Usage (sorted by free, ascending) ===
+I (2658) PerfMon:   Task                    Free  Pri  State
+I (2664) PerfMon:   ----                    ----  ---  -----
+I (2670) PerfMon:   IDLE0                   780b    0  0  RDY
+I (2675) PerfMon:   IDLE1                   884b    0  1  RDY
+I (2680) PerfMon:   imu_task               1020b    5  0  BLK
+I (2686) PerfMon:   crosspad_events        1188b    4  1  BLK
+I (2691) PerfMon:   ipc0                   1212b    1  0  SUS
+I (2697) PerfMon:   ipc1                   1300b   24  1  SUS
+I (2702) PerfMon:   Tmr Svc                1372b    1  7  BLK
+I (2707) PerfMon:   stm32_maint            1412b    3  0  BLK
+I (2713) PerfMon:   main                   1844b    1  0  RUN
+I (2718) PerfMon:   SoftOffMon             1860b    8  7  BLK
+I (2724) PerfMon:   vib_init               2060b    3  7  BLK
+I (2729) PerfMon:   stm32_uart_even        2292b    8  7  BLK
+I (2735) PerfMon:   TinyUSB                3240b    5  1  BLK
+I (2741) PerfMon:   esp_timer              3772b   22  0  SUS
+I (2746) PerfMon:   taskLVGL               4716b    4  0  BLK
+I (2751) PerfMon:   Total tasks: 15
+I (2754) PerfMon: 
+I (2756) PerfMon: === FreeRTOS Task Runtime Statistics ===
+I (2762) PerfMon: 
+main           	604282		27%
+IDLE1          	2157041		97%
+IDLE0          	1137514		51%
+taskLVGL       	38254		1%
+vib_init       	7252		<1%
+SoftOffMon     	1419		<1%
+stm32_maint    	325		<1%
+imu_task       	53661		2%
+crosspad_events	14		<1%
+stm32_uart_even	22		<1%
+TinyUSB        	1558		<1%
+ipc0           	43644		1%
+esp_timer      	2150		<1%
+ipc1           	43651		1%
+Tmr Svc        	12		<1%
+
+I (2800) PerfMon: =================================================
+I (2806) PerfMon: Performance monitor task started (interval: 10000 ms)
+I (2809) STM32_MIDI_TRANSPORT: Initializing STM32 MIDI transport layer
+W (2818) STM32_UART: STM32 UART already initialized
+I (2823) STM32_MIDI_TRANSPORT: MIDI receive stream buffer initialized (2048 bytes)
+I (2830) STM32_UART: External MIDI callback registered
+I (2835) STM32_MIDI_TRANSPORT: STM32 MIDI transport initialized successfully
+I (2842) ESP_TINYUSB_MIDI: Initializing ESP TinyUSB MIDI transport
+I (2848) ESP_TINYUSB_MIDI: USB MIDI receive queue initialized
+I (2853) ESP_TINYUSB_MIDI: ESP TinyUSB MIDI transport initialized successfully
+I (2860) MIDI: USB MIDI callbacks registered
+[32msetup_smpl_stream_ply[0m
+Allocated SampleStreamPlayer memory: 1432 bytes at 0x3c18d5e4
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+SampleStreamPlayer_Init successfully
+I (3343) bsp_i2s_dual: Initializing I2S with ES8388 codec(s) (dual: yes)...
+I (3343) bsp_i2s_dual: Initializing dual I2S codec interfaces...
+I (3343) ota_overlay: Global OTA overlay registered
+I (3345) bsp_i2s_dual: I2S0 initialized (Master mode)
+I (3349) crosspad_main: All systems operational - Crosspad ready
+I (3355) bsp_i2s_dual: I2S1 initialized (Slave mode)
+I (3364) bsp_i2s_dual: Dual I2S codec interfaces initialized successfully
+I (4238) bsp_es8388: ES8388 interface 0 initialized (addr=0x10)
+I (4740) bsp_es8388: ES8388 [0] started (mode=3)
+I (4740) bsp_i2s_dual: Initializing second ES8388 codec on I2S1...
+LVGL log: [Warn]	(2.555, +2555)	 setupLVGL: LVGL setup done successfully display.h:210
+
+I (4865) GUI: Initializing app registry
+PadManager: Registered pad logic for app 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+I (4873) GUI: App registry initialized
+I (4877) GUI: AddApps() completed with 8 apps
+I (4882) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+I (5002) GUI: LoadMainScreen completed successfully
+I (5609) bsp_es8388: ES8388 interface 1 initialized (addr=0x11)
+I (6111) bsp_es8388: ES8388 [1] started (mode=3)
+I (6111) bsp_i2s_dual: Second ES8388 codec initialized successfully
+I (6111) bsp_i2s_dual: I2S with ES8388 initialized successfully (dual codec mode)
+I (6119) audio_route: codec0 ADC input -> 2
+I (6121) usb_audio_bridge: USB mic capture source -> codec 0
+I (6127) audio_route: preset 0 applied (codec0 input 2)
+I (6162) crosspad_main: CDC Line state changed 0: DTR:1, RTS:1
+I (6169) crosspad_main: CDC Line state changed 0: DTR:0, RTS:1
+I (6173) crosspad_main: CDC Line state changed 0: DTR:0, RTS:0
+W (6442) Drv2605: Auto-calibration timeout
+W (6442) CrosspadPlatform: DRV2605: init failed, haptics disabled
+I (7204) hil_control: APP_START: launching 'KitSelector'
+I (8576) hil_control: APP_STOP: back to launcher
+I (8576) GUI: Loading main screen
+I (8576) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+I (8722) GUI: LoadMainScreen completed successfully
+I (9995) hil_control: APP_START: launching 'Fishtank'
+PadManager: Registered pad logic for app 'Fishtank'
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Fishtank'
+I (10985) hil_control: APP_STOP: back to launcher
+I (10985) GUI: Loading main screen
+I (10985) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Fishtank'
+PadManager: Activating pad logic 'Sampler'
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+I (11112) GUI: LoadMainScreen completed successfully
+I (12201) hil_control: APP_START: launching 'Instructions'
+[Instructions] Loaded from /assets/docs/instructions.md
+I (12813) PerfMon: === Heap Statistics ===
+I (12813) PerfMon: Internal SRAM:
+I (12813) PerfMon:   Total:               289803 bytes
+I (12813) PerfMon:   Used:                252532 bytes (87%)
+I (12819) PerfMon:   Free:                 37271 bytes
+I (12823) PerfMon:   Largest free block:   26612 bytes
+I (12828) PerfMon:   Min free ever:        27183 bytes
+I (12833) PerfMon:   Allocated blocks:      1270
+I (12838) PerfMon:   Free blocks:             38
+I (12842) PerfMon:   Total blocks:          1308
+I (12846) PerfMon: DMA-capable:
+I (12849) PerfMon:   Total:               281691 bytes
+I (12854) PerfMon:   Free:                 29551 bytes
+I (12859) PerfMon:   Largest free block:   26612 bytes
+I (12864) PerfMon: PSRAM:
+I (12866) PerfMon:   Total:              6787052 bytes (6.5 MB)
+I (12872) PerfMon:   Used:               6097368 bytes (89%)
+I (12877) PerfMon:   Free:                689684 bytes
+I (12882) PerfMon:   Largest free block:  655348 bytes
+I (12887) PerfMon:   Min free ever:       655276 bytes
+I (12892) PerfMon:   Allocated blocks:       119
+I (12896) PerfMon: 
+=== Task Stack Usage (sorted by free, ascending) ===
+I (12902) PerfMon:   Task                    Free  Pri  State
+I (12908) PerfMon:   ----                    ----  ---  -----
+I (12915) PerfMon:   IDLE0                   780b    0  0  RDY
+I (12919) PerfMon:   IDLE1                   788b    0  1  RDY
+I (12925) PerfMon:   imu_task               1020b    5  0  BLK
+I (12930) PerfMon:   main                   1156b    1  0  BLK
+I (12936) PerfMon:   crosspad_events        1188b    4  1  BLK
+I (12941) PerfMon:   ipc0                   1212b    1  0  SUS
+I (12947) PerfMon:   taskLVGL               1244b    4  0  BLK
+I (12952) PerfMon:   ipc1                   1300b   24  1  SUS
+I (12958) PerfMon:   Tmr Svc                1372b    1  7  BLK
+I (12963) PerfMon:   stm32_maint            1412b    3  0  BLK
+I (12969) PerfMon:   SoftOffMon             1860b    8  7  BLK
+I (12975) PerfMon:   UART drv               1880b    6  0  BLK
+I (12980) PerfMon:   TinyUSB                1912b    5  1  BLK
+I (12986) PerfMon:   perfmon                1976b    1  0  RUN
+I (12991) PerfMon:   stm32_uart_even        2292b    8  7  BLK
+I (12997) PerfMon:   LVGL drv               2472b    4  0  BLK
+I (13002) PerfMon:   audio_rt               2640b   19  1  RDY
+I (13008) PerfMon:   PadAnim                2800b    3  1  BLK
+I (13013) PerfMon:   esp_timer              3772b   22  0  SUS
+I (13019) PerfMon:   audio_bg               4088b   18  0  BLK
+I (13025) PerfMon:   Total tasks: 20
+I (13189) hil_control: APP_STOP: back to launcher
+I (13189) GUI: Loading main screen
+I (13189) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+I (13301) GUI: LoadMainScreen completed successfully
+I (14592) hil_control: APP_START: launching 'Mixer'
+PadManager: Registered pad logic for app 'Mixer'
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Mixer'
+[MixerPad] Activated
+I (15661) hil_control: APP_STOP: back to launcher
+I (15661) GUI: Loading main screen
+I (15661) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Mixer'
+[MixerPad] Deactivated
+PadManager: Activating pad logic 'Sampler'
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+PadManager: Unregistered pad logic for app 'Mixer'
+I (15793) GUI: LoadMainScreen completed successfully
+I (16994) hil_control: APP_START: launching 'Sampler'
+I (20809) hil_control: APP_START: launching 'KitSelector'
+I (22191) hil_control: APP_STOP: back to launcher
+I (22191) GUI: Loading main screen
+I (22191) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+I (22449) GUI: LoadMainScreen completed successfully
+I (23028) PerfMon: === Heap Statistics ===
+I (23028) PerfMon: Internal SRAM:
+I (23028) PerfMon:   Total:               289803 bytes
+I (23028) PerfMon:   Used:                238840 bytes (82%)
+I (23034) PerfMon:   Free:                 50963 bytes
+I (23038) PerfMon:   Largest free block:   26612 bytes
+I (23043) PerfMon:   Min free ever:        27175 bytes
+I (23048) PerfMon:   Allocated blocks:      1015
+I (23053) PerfMon:   Free blocks:             31
+I (23057) PerfMon:   Total blocks:          1046
+I (23061) PerfMon: DMA-capable:
+I (23064) PerfMon:   Total:               281691 bytes
+I (23069) PerfMon:   Free:                 43247 bytes
+I (23074) PerfMon:   Largest free block:   26612 bytes
+I (23079) PerfMon: PSRAM:
+I (23082) PerfMon:   Total:              6787052 bytes (6.5 MB)
+I (23087) PerfMon:   Used:               6097416 bytes (89%)
+I (23092) PerfMon:   Free:                689636 bytes
+I (23097) PerfMon:   Largest free block:  655348 bytes
+I (23102) PerfMon:   Min free ever:       609036 bytes
+I (23107) PerfMon:   Allocated blocks:       120
+I (23111) PerfMon: 
+=== Task Stack Usage (sorted by free, ascending) ===
+I (23117) PerfMon:   Task                    Free  Pri  State
+I (23123) PerfMon:   ----                    ----  ---  -----
+I (23130) PerfMon:   IDLE0                   780b    0  0  RDY
+I (23134) PerfMon:   IDLE1                   788b    0  1  RDY
+I (23140) PerfMon:   imu_task               1020b    5  0  BLK
+I (23145) PerfMon:   main                   1156b    1  0  BLK
+I (23151) PerfMon:   crosspad_events        1188b    4  1  BLK
+I (23156) PerfMon:   ipc0                   1212b    1  0  SUS
+I (23162) PerfMon:   taskLVGL               1244b    4  0  BLK
+I (23167) PerfMon:   ipc1                   1300b   24  1  SUS
+I (23173) PerfMon:   stm32_maint            1348b    3  0  BLK
+I (23178) PerfMon:   Tmr Svc                1372b    1  7  BLK
+I (23184) PerfMon:   SoftOffMon             1860b    8  7  BLK
+I (23190) PerfMon:   UART drv               1880b    6  0  BLK
+I (23195) PerfMon:   TinyUSB                1912b    5  1  BLK
+I (23201) PerfMon:   perfmon                1976b    1  0  RUN
+I (23206) PerfMon:   stm32_uart_even        2292b    8  7  BLK
+I (23212) PerfMon:   LVGL drv               2472b    4  0  BLK
+I (23217) PerfMon:   audio_rt               2640b   19  1  RDY
+I (23223) PerfMon:   PadAnim                2704b    3  1  BLK
+I (23228) PerfMon:   esp_timer              3772b   22  0  SUS
+I (23234) PerfMon:   audio_bg               4088b   18  0  BLK
+I (23240) PerfMon:   Total tasks: 20
+I (23602) hil_control: APP_START: launching 'Fishtank'
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Fishtank'
+I (24616) hil_control: APP_STOP: back to launcher
+I (24616) GUI: Loading main screen
+I (24616) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Fishtank'
+PadManager: Activating pad logic 'Sampler'
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+I (24742) GUI: LoadMainScreen completed successfully
+I (25998) hil_control: APP_START: launching 'Instructions'
+[Instructions] Loaded from /assets/docs/instructions.md
+I (27023) hil_control: APP_STOP: back to launcher
+I (27023) GUI: Loading main screen
+I (27023) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+I (27136) GUI: LoadMainScreen completed successfully
+I (28400) hil_control: APP_START: launching 'Mixer'
+PadManager: Registered pad logic for app 'Mixer'
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Mixer'
+[MixerPad] Activated
+I (29468) hil_control: APP_STOP: back to launcher
+I (29468) GUI: Loading main screen
+I (29468) GUI: Loading main screen
+PadManager: Deactivating pad logic 'Mixer'
+[MixerPad] Deactivated
+PadManager: Activating pad logic 'Sampler'
+PadManager: Deactivating pad logic 'Sampler'
+PadManager: Activating pad logic 'Sampler'
+PadManager: Unregistered pad logic for app 'Mixer'
+I (29600) GUI: LoadMainScreen completed successfully
+I (30804) hil_control: APP_START: launching 'Sampler'
+LVGL log: [Warn]	(28.495, +25940)	 start: App already started AppBase.hpp:92
+
+Guru Meditation Error: Core  0 panic'ed (StoreProhibited). Exception was unhandled.
+
+Core  0 register dump:
+PC      : 0x40056f60  PS      : 0x00060f30  A0      : 0x8037914c  A1      : 0x3fcd5b80  
+A2      : 0xd00f0748  A3      : 0x3fcd5bf0  A4      : 0x00301019  A5      : 0xd00f0748  
+A6      : 0x3fcf1b24  A7      : 0x3c122fb4  A8      : 0x00000000  A9      : 0x3fcd5b60  
+A10     : 0x3fcf1b24  A11     : 0x3fcba98c  A12     : 0x3fcd5734  A13     : 0x3fcd5510  
+A14     : 0x00000001  A15     : 0x0000000c  SAR     : 0x00000011  EXCCAUSE: 0x0000001d  
+EXCVADDR: 0xd00f0748  LBEG    : 0x40056f5c  LEND    : 0x40056f72  LCOUNT  : 0x00030100  
+
+
+Backtrace: 0x40056f5d:0x3fcd5b80 0x40379149:0x3fcd5b90 0x420aa97d:0x3fcd5bb0 0x4208e2e7:0x3fcd5be0 0x4207b0c1:0x3fcd5c20 0x4201438b:0x3fcd5c50 0x4205979a:0x3fcd5c70 0x42014e9a:0x3fcd5c90 0x4208df07:0x3fcd5cb0 0x4208fd62:0x3fcd5cd0 0x4208febd:0x3fcd5d00 0x42031c91:0x3fcd5d20
+
+
+
+
+ELF file SHA256: 14bf581c7
+
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0x2a (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4038ff40
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x117c
+load:0x403c8700,len:0xc68
+load:0x403cb700,len:0x2f98
+entry 0x403c88c4
+I (331) octal_psram: vendor id    : 0x0d (AP)
+I (331) octal_psram: dev id       : 0x02 (generation 3)
+I (331) octal_psram: density      : 0x03 (64 Mbit)
+I (333) octal_psram: good-die     : 0x01 (Pass)
+I (337) octal_psram: Latency      : 0x01 (Fixed)
+I (342) octal_psram: VCC          : 0x01 (3V)
+I (346) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (351) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (355) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (360) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (365) octal_psram: DriveStrength: 0x00 (1/1)
+I (369) MSPI Timing: Enter psram timing tuning
+I (374) esp_psram: Found 8MB PSRAM device
+I (377) esp_psram: Speed: 80MHz
+I (406) mmu_psram: Read only data copied and mapped to SPIRAM
+I (482) mmu_psram: Instructions copied and mapped to SPIRAM
+I (482) cpu_start: Multicore app
+I (491) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (491) cpu_start: Pro cpu start user code
+I (491) cpu_start: cpu freq: 240000000 Hz
+I (493) app_init: Application information:
+I (497) app_init: Project name:     CrossPad
+I (501) app_init: App version:      v1.0.1-28-g56607a6-dirty
+I (506) app_init: Compile time:     Aug 25 2026 22:29:11
+I (511) app_init: ELF file SHA256:  14bf581c7...
+I (515) app_init: ESP-IDF:          v5.5.4
+I (519) efuse_init: Min chip rev:     v0.0
+I (523) efuse_init: Max chip rev:     v0.99 
+I (527) efuse_init: Chip rev:         v0.2
+I (531) heap_init: Initializing. RAM available for dynamic allocation:
+I (537) heap_init: At 3FCBA1D8 len 0002F538 (189 KiB): RAM
+I (542) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (547) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (553) heap_init: At 600FE038 len 00001FB0 (7 KiB): RTCRAM
+I (558) esp_psram: Adding pool of 6592K of PSRAM memory to heap allocator
+I (564) esp_psram: Adding pool of 35K of PSRAM memory gap generated due to end address alignment of drom to the heap allocator
+I (576) spi_flash: detected chip: generic
+I (579) spi_flash: flash io: qio
+I (583) ESP_TINYUSB_MIDI: EspTinyUsbMidiTransport constructor called
+I (589) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (595) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (602) main_task: Started on CPU0
+I (609) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+I (613) main_task: Calling app_main()
+I (1137) nvs_store: NVS initialized
+I (1154) usb_cfg_mgr: Initializing USB in default mode (CDC + MIDI)
+I (1154) tusb_desc: 
+┌─────────────────────────────────┐
+│  USB Device Descriptor Summary  │
+├───────────────────┬─────────────┤
+│bDeviceClass       │ 239         │
+├───────────────────┼─────────────┤
+│bDeviceSubClass    │ 2           │
+├───────────────────┼─────────────┤
+│bDeviceProtocol    │ 1           │
+├───────────────────┼─────────────┤
+│bMaxPacketSize0    │ 64          │
+├───────────────────┼─────────────┤
+│idVendor           │ 0x303a      │
+├───────────────────┼─────────────┤
+│idProduct          │ 0x3456      │
+├───────────────────┼─────────────┤
+│bcdDevice          │ 0x501       │
+├───────────────────┼─────────────┤
+│iManufacturer      │ 0x1         │
+├───────────────────┼─────────────┤
+│iProduct           │ 0x2         │
+├───────────────────┼─────────────┤
+│iSerialNumber      │ 0x3         │
+├───────────────────┼─────────────┤
+│bNumConfigurations │ 0x1         │
+└───────────────────┴─────────────┘
+I (1317) TinyUSB: TinyUSB Driver installed
+I (1320) usb_cfg_mgr: USB config manager initialized, mode: CDC + MIDI
+I (1328) EspLedStrip: LED strip initialized: 16 LEDs on GPIO 17 (remap: yes)
+I (1333) EspEventBus: Initialized (queue=64, core=1, prio=4)
+I (1341) CrosspadPlatform: Audio pipeline: mixer mode (Sampler→all outs, IN1/IN2 muted)
+I (1347) CrosspadPlatform: STM32 control plane: I2C @0x42 (rev2)
+I (1352) CrosspadPlatform: Platform fully initialized
+I (1357) audio_route: audio route control registered (SysEx cmd 0x1D)
+I (1366) CROSSPAD_S3: Setting up  GPIO pins
+I (1367) CROSSPAD_S3: Initializing STM32 communication subsystem via HAL
+I (1373) STM32_HAL: Initializing STM32 HAL
+I (1377) STM32_UART: Initializing STM32 UART communication
+I (1383) uart: ESP_INTR_FLAG_IRAM flag not set while CONFIG_UART_ISR_IN_IRAM is enabled, flag updated
+I (1392) uart: queue free spaces: 20
+I (1395) STM32_UART: STM32 UART initialized on TX:10, RX:9
+I (1400) STM32_I2C: STM32 I2C link up @0x42, 400000 Hz
+I (1405) STM32_I2C: STM32 ident: proto=0.11 fw=1.0 pcb=20
+I (1410) STM32_HAL: STM32 HAL initialized
+I (1435) CrosspadPlatform: STM32 framework wired and started
+I (1435) crosspad_main:   - STM32 UART2 communication: Ready
+I (1435) Drv2605: DRV2605 found — configuring LRA
+I (1439) crosspad_main:   - USB CDC ACM interface: Ready
+I (1444) crosspad_main:   - USB MIDI interface: Ready
+W (1449) BleMidi: BLE MIDI requested but NimBLE is not enabled in this build
+W (1456) MIDI: BLE MIDI failed to start (internal free 165811, largest 90100)
+I (1462) crosspad_main: Crosspad initialization complete
+I (1468) crosspad_main: Starting application...
+I (1472) crosspad_main: Initializing IMU...
+I (1476) BSP_IMU: Initializing LSM6DSO IMU on I2C
+I (1483) BSP_IMU: LSM6DSO device ID: 0x6A
+I (1485) BSP_IMU: LSM6DSO IMU initialized successfully
+I (1489) crosspad_main: IMU initialized successfully
+I (1493) BSP_IMU: IMU task started (update rate: 10 ms, priority: 5)
+I (1503) BSP_IMU: IMU task running
+I (1599) crosspad_main: IMU Test - Accel: X=-0.09 Y=-0.01 Z=-0.94 g
+I (1599) crosspad_main: IMU Test - Gyro: X=1.33 Y=-5.04 Z=-0.63 dps
+I (1600) crosspad_main: IMU Test - Temp: 65.44 °C
+I (1604) bsp_sdmmc: SDMMC host prepared: slot=0 max_freq=40000kHz
+I (1610) bsp_sdmmc: SDMMC SLOT_0 pin map: CLK=6 CMD=7 D0=5 D1=4 D2=16 D3=15 width=4
+I (1661) bsp_sdmmc: SD Card mounted successfully at /sdcard
+I (1661) crosspad_main: Initializing LittleFS
+I (1665) CROSSPAD_S3: Setting LCD backlight: 0%
+I (2249) KitLoader: Discovered 43 kits
+I (2306) LVGL: Starting LVGL task
+I (2306) CROSSPAD_S3: Setting LCD backlight: 5%
+I (2306) CROSSPAD_S3: Setting LCD backlight: 5%
+I (2307) ili9341: LCD panel create success, version: 2.0.2
+W (2411) ili9341: The 36h command has been used and will be overwritten by external initialization sequence
+W (2411) ili9341: The 3Ah command has been used and will be overwritten by external initialization sequence
+I (2560) PerfMon: 
+I (2560) PerfMon: ========== CrossPad Performance Report ==========
+I (2560) PerfMon: === Heap Statistics ===
+I (2561) PerfMon: Internal SRAM:
+I (2564) PerfMon:   Total:               289803 bytes
+I (2568) PerfMon:   Used:                176144 bytes (60%)
+I (2573) PerfMon:   Free:                113659 bytes
+I (2578) PerfMon:   Largest free block:   40948 bytes
+I (2583) PerfMon:   Min free ever:       113571 bytes
+I (2588) PerfMon:   Allocated blocks:       499
+I (2592) PerfMon:   Free blocks:              8
+I (2596) PerfMon:   Total blocks:           507
+I (2601) PerfMon: DMA-capable:
+I (2603) PerfMon:   Total:               281691 bytes
+I (2608) PerfMon:   Free:                105939 bytes
+I (2613) PerfMon:   Largest free block:   40948 bytes
+I (2618) PerfMon: PSRAM:
+I (2620) PerfMon:   Total:              6787052 bytes (6.5 MB)
+I (2625) PerfMon:   Used:                 91868 bytes (1%)
+I (2631) PerfMon:   Free:               6695184 bytes
+I (2635) PerfMon:   Largest free block: 6553588 bytes
+I (2640) PerfMon:   Min free ever:      6644584 bytes
+I (2645) PerfMon:   Allocated blocks:        20
+I (2649) PerfMon: 
+I (2651) PerfMon: 
+=== Task Stack Usage (sorted by free, ascending) ===
+I (2657) PerfMon:   Task                    Free  Pri  State
+I (2663) PerfMon:   ----                    ----  ---  -----
+I (2669) PerfMon:   IDLE0                   780b    0  0  RDY
+I (2674) PerfMon:   IDLE1                   884b    0  1  RDY
+I (2679) PerfMon:   imu_task               1020b    5  0  BLK
+I (2685) PerfMon:   crosspad_events        1188b    4  1  BLK
+I (2690) PerfMon:   ipc0                   1212b    1  0  SUS
+I (2696) PerfMon:   ipc1                   1300b   24  1  SUS
+I (2701) PerfMon:   Tmr Svc                1372b    1  7  BLK
+I (2706) PerfMon:   stm32_maint            1412b    3  0  BLK
+I (2712) PerfMon:   main                   1844b    1  0  RUN
+I (2717) PerfMon:   SoftOffMon             1860b    8  7  BLK
+I (2723) PerfMon:   vib_init               2060b    3  7  BLK
+I (2728) PerfMon:   stm32_uart_even        2292b    8  7  BLK
+I (2734) PerfMon:   TinyUSB                3240b    5  1  BLK
+I (2740) PerfMon:   esp_timer              3772b   22  0  SUS
+I (2745) PerfMon:   taskLVGL               4708b    4  0  BLK
+I (2750) PerfMon:   Total tasks: 15
+I (2753) PerfMon: 
+I (2755) PerfMon: === FreeRTOS Task Runtime Statistics ===
+I (2761) PerfMon: 
+main           	604281		27%
+IDLE1          	2156197		97%
+IDLE0          	1136859		51%
+taskLVGL       	38250		1%
+vib_init       	7269		<1%
+SoftOffMon     	1379		<1%
+stm32_maint    	331		<1%
+imu_task       	53318		2%
+crosspad_events	14		<1%
+stm32_uart_even	22		<1%
+TinyUSB        	1538		<1%
+ipc0           	43644		1%
+esp_timer      	2148		<1%
+ipc1           	43651		1%
+Tmr Svc        	12		<1%
+
+I (2799) PerfMon: =================================================
+I (2805) PerfMon: Performance monitor task started (interval: 10000 ms)
+I (2808) STM32_MIDI_TRANSPORT: Initializing STM32 MIDI transport layer
+W (2817) STM32_UART: STM32 UART already initialized
+I (2822) STM32_MIDI_TRANSPORT: MIDI receive stream buffer initialized (2048 bytes)
+I (2829) STM32_UART: External MIDI callback registered
+I (2834) STM32_MIDI_TRANSPORT: STM32 MIDI transport initialized successfully
+I (2841) ESP_TINYUSB_MIDI: Initializing ESP TinyUSB MIDI transport
+I (2847) ESP_TINYUSB_MIDI: USB MIDI receive queue initialized
+I (2852) ESP_TINYUSB_MIDI: ESP TinyUSB MIDI transport initialized successfully
+I (2859) MIDI: USB MIDI callbacks registered
+[32msetup_smpl_stream_ply[0m
+Allocated SampleStreamPlayer memory: 1432 bytes at 0x3c18d5e4
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 99468 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+allocated 98336 bytes for streamPlayer
+SampleStreamPlayer_Init successfully
+I (3341) bsp_i2s_dual: Initializing I2S with ES8388 codec(s) (dual: yes)...
+I (3341) bsp_i2s_dual: Initializing dual I2S codec interfaces...
+I (3341) ota_overlay: Global OTA overlay registered
+I (3344) bsp_i2s_dual: I2S0 initialized (Master mode)
+I (3347) crosspad_main: All systems operational - Crosspad ready
+I (3353) bsp_i2s_dual: I2S1 initialized (Slave mode)
+I (3362) bsp_i2s_dual: Dual I2S codec interfaces initialized successfully

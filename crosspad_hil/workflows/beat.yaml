@@ -1,0 +1,285 @@
+# "Make a beat": the core user workflow, start to finish, as one file.
+#
+# Two drivers read this file:
+#   board      crosspad-hil run beat [--depth quick|medium|full]   (scenarios/beat.py)
+#   simulator  Mucha perform/perform_beat.py <depth> <rehearse|take> (the fly does it on video)
+#
+# A step runs at its `level` and every deeper one (quick < medium < full).
+# `op` is what the board driver does and checks (scenarios/beat.py: one method
+# per op); `sim` is the same step on the PC simulator's screen: taps (LCD
+# pixels), encoder turns and presses, pad hits, waits -- played by the Mucha
+# performer. `caption` is what the video says while the step runs.
+#
+# Placeholders: {tag} (lower case) and {TAG} (upper case) are the run's own
+# name, so nothing the run makes can be mistaken for the user's.
+
+name: beat
+title: Make a beat
+version: 1
+bpm: 100
+steps_per_bar: 16            # the grid patterns are written in: 1/16 notes
+quant: 2                     # SEQ QUANT: crosspad::Quantization::Sixteenth
+
+fixture:
+  file: "beat_{tag}.wav"
+  dir: /sdcard/crosspad/recordings        # where the Slicer's file list opens
+  sim_rate: 48000                          # the simulator's engine rate; the board plays 44.1 k
+  hits:                                    # one per eighth note, one per pad (1..8)
+    - {name: A3, freq: 220.00}
+    - {name: C4, freq: 261.63}
+    - {name: E4, freq: 329.63}
+    - {name: G4, freq: 392.00}
+    - {name: A4, freq: 440.00}
+    - {name: C5, freq: 523.25}
+    - {name: E5, freq: 659.26}
+    - {name: G5, freq: 783.99}
+
+project: "HIL_BEAT_{TAG}"   # the audio song the run opens, and deletes at the end
+kit: "BEAT_{TAG}"           # what the Slicer names the kit: the file's name upper-cased
+
+# step, pad (0-based), velocity; steps count from the scene's first 1/16
+patterns:
+  A:                         # the beat: low pulse, backbeat, offbeats, a lead
+    bars: 2
+    hits:
+      - [0, 0, 120]
+      - [4, 2, 110]
+      - [6, 0, 90]
+      - [10, 4, 70]
+      - [12, 2, 110]
+      - [14, 6, 90]
+      - [16, 0, 120]
+      - [20, 2, 110]
+      - [22, 0, 90]
+      - [26, 4, 70]
+      - [28, 2, 110]
+      - [30, 6, 90]
+  B:                         # overdubbed over A
+    bars: 2
+    hits:
+      - [2, 3, 80]
+      - [8, 1, 100]
+      - [13, 5, 100]
+      - [18, 3, 80]
+      - [24, 1, 100]
+      - [29, 5, 100]
+  C:                         # scene 2: one bar
+    bars: 1
+    hits:
+      - [0, 7, 100]
+      - [2, 1, 90]
+      - [4, 7, 100]
+      - [8, 7, 100]
+      - [10, 1, 90]
+      - [12, 7, 100]
+
+# pad editor changes, by depth (cumulative)
+edits:
+  medium:
+    - {pad: 4, control: PITCH, value: 12}
+  full:
+    - {pad: 2, control: REV}
+    - {pad: 0, control: VOL, value: 60}
+
+erase_pad: 3                 # full: ERASE takes this pad's notes out of scene 1
+
+steps:
+  - id: preflight
+    level: quick
+    op: preflight
+    caption: [Ready, "A fresh song of its own: nothing of yours is touched."]
+
+  - id: fixture
+    level: quick
+    op: fixture
+    caption: [The loop, "Eight hits, one per eighth note, each at its own pitch."]
+
+  - id: project
+    level: quick
+    op: project
+    caption: [Arrange, "A new song: HIL_BEAT."]
+
+  - id: slice
+    level: quick
+    op: slice
+    args: {sens: 50, tolerance_ms: [-14, 2]}
+    caption: [Slicer, "Open the loop: HITS puts a slice on every hit."]
+    sim:
+      - {app: Slicer}
+      - {wait: 1.2}
+      - {tap: [70, 40], label: "file"}
+      - {wait: 1.0}
+      - {tap: [100, 94], label: "the loop"}
+      - {wait: 1.6}
+      - {shot: slice_hits}
+      - {pads: [[0.0, 0, 100], [0.4, 2, 100], [0.8, 4, 100], [1.2, 6, 100]], hold: 0.2}
+      - {wait: 1.8}
+
+  - id: export
+    level: quick
+    op: export
+    caption: [Slicer, "SAVE KIT: the slices become a kit, one per pad."]
+    sim:
+      - {tap: [285, 221], label: "KIT"}
+      - {wait: 1.2}
+      - {shot: kit_name}
+      - {tap: [283, 209], label: "save"}
+      - {wait: 2.0}
+      - {shot: kit_saved}
+
+  - id: load_kit
+    level: quick
+    op: load_kit
+    caption: [Kits, "Load it."]
+    sim:
+      - {back: 1}
+      - {kit_load: kit}
+      - {wait: 3.0}
+
+  - id: audition
+    level: quick
+    op: audition
+    caption: [Sampler, "Every slice on its own pad."]
+    sim:
+      - {app: Sampler}
+      - {wait: 1.5}
+      - {pads: [[0.0, 0, 110], [0.3, 1, 110], [0.6, 2, 110], [0.9, 3, 110], [1.2, 4, 110], [1.5, 5, 110], [1.8, 6, 110], [2.1, 7, 110]], hold: 0.2}
+      - {wait: 2.6}
+      - {shot: audition}
+
+  - id: pad_edit
+    level: medium
+    op: pad_edit
+    caption: [Pad editor, "Pad 5 an octave up; reverse, level."]
+
+  - id: record
+    level: quick
+    op: record
+    args: {pattern: A, scene: 0}
+    caption: [Sequencer, "Two bars at 100 BPM: REC, then the beat."]
+    sim:
+      - {app: Sequencer}
+      - {wait: 1.2}
+      - {tap: [178, 46], label: "bars"}          # 4b -> 8b -> 1b -> 2b
+      - {wait: 0.4}
+      - {tap: [178, 46], label: "bars"}
+      - {wait: 0.4}
+      - {tap: [178, 46], label: "bars"}
+      - {wait: 0.6}
+      - {shot: seq_2b}
+      - {tap: [64, 15], label: "REC", mark: rec}
+      - {pattern: A, from: rec, count_in_bars: 1}
+      - {until: {from: rec, bars: 3, plus: -0.2}}
+      - {tap: [190, 15], label: "STOP"}
+      - {wait: 0.4}
+      - {tap: [148, 15], label: "PLAY", mark: play}
+      - {wait: 1.5}
+      - {shot: seq_recorded}
+
+  - id: overdub
+    level: medium
+    op: overdub
+    args: {pattern: B, scene: 0}
+    caption: [Sequencer, "DUB: a second layer over the loop."]
+    sim:                                          # DUB works while it plays: in at once, B from the next loop start
+      - {tap: [190, 15], label: "STOP"}
+      - {wait: 0.4}
+      - {tap: [17, 46], label: "<"}               # the scene again: the clock back to bar one
+      - {wait: 0.4}
+      - {tap: [148, 15], label: "PLAY", mark: play}
+      - {wait: 0.6}
+      - {tap: [106, 15], label: "DUB"}
+      - {pattern: B, loop_from: play, phase: 0.0}
+      - {until: {from: pattern, bars: 2, plus: -0.2}}
+      - {tap: [190, 15], label: "STOP"}
+      - {wait: 0.4}
+      - {tap: [148, 15], label: "PLAY", mark: play}
+      - {wait: 1.5}
+      - {shot: seq_dub}
+
+  - id: double
+    level: medium
+    op: double
+    args: {scene: 0}
+    caption: [Sequencer, "x2: four bars, the beat copied."]
+    sim:
+      - {tap: [111, 221], label: "x2"}
+      - {wait: 2.0}
+      - {shot: seq_x2}
+
+  - id: erase
+    level: full
+    op: erase
+    args: {scene: 0}
+    caption: [Sequencer, "ERASE: one pad's notes out."]
+
+  - id: scene2
+    level: full
+    op: scene2
+    args: {pattern: C}
+    caption: [Song, "A second scene, and a song of both."]
+
+  - id: mixer
+    level: medium
+    op: mixer
+    caption: [Mixer, "Level, mute, EQ -- and back."]
+
+  - id: bounce
+    level: quick
+    op: bounce
+    args: {scene: 0, track: 0, onset_tol_ms: 15}
+    caption: [Sequencer, "BOUNCE: the loop to audio, on track 1."]
+    sim:
+      - {tap: [190, 15], label: "STOP"}
+      - {wait: 0.6}
+      - {tap: [205, 221], label: "BOUNCE"}
+      - {wait: 1.0}
+      - {shot: bounce_track}
+      - {tap: [160, 93], label: "Track 1", mark: bounce}
+      - {until: {from: bounce, scene_bars: true, plus: 1.8}}
+      - {shot: bounce_done}
+      - {tap: [160, 108], label: "OK"}
+      - {wait: 0.8}
+
+  - id: arrange
+    level: medium
+    op: arrange
+    caption: [Arrange, "Cut, duplicate, play the song."]
+    sim:
+      - {app: Arrange}
+      - {wait: 1.5}
+      - {tap: [100, 95], label: "the clip"}
+      - {wait: 0.5}
+      - {tap: [113, 221], label: "DUP"}
+      - {wait: 0.8}
+      - {tap: [240, 46], label: "LOOP off"}
+      - {wait: 0.5}
+      - {shot: arrange_dup}
+      - {tap: [148, 15], label: "PLAY", mark: song}
+      - {until: {from: song, scene_bars: 2, plus: 0.3}}
+      - {tap: [190, 15], label: "STOP"}
+      - {wait: 0.8}
+
+  - id: arrange_full
+    level: full
+    op: arrange_full
+    args: {pattern: A, rec_bar: 4}
+    caption: [Arrange, "REC onto the song, import the loop, export a Live set."]
+
+  - id: settings
+    level: quick
+    op: settings
+    caption: [Settings, "A new colour -- and the old one back."]
+    sim:
+      - {app: Settings}
+      - {wait: 1.2}
+      - {shot: settings}
+      - {setting: {key: theme_color, step: 1}}    # the sim's Display row sits under its transport bar
+      - {wait: 2.0}
+      - {setting: {key: theme_color, restore: true}}
+      - {wait: 1.0}
+
+  - id: cleanup
+    level: quick
+    op: cleanup
+    caption: [Done, "Everything put back."]

@@ -1,0 +1,126 @@
+# CrossPad SysEx catalog. Frame: F0 <manufacturer> <id> [sub] [args...] F7.
+# Sources: platform-idf/main/audio_route_control.cpp (AUDIO_ROUTE_SUB_*),
+# tools/hil_sampler_record.py (MANU/CMD_*), tools/requestBootloader.py (0x7D 0x19 0x00),
+# tools/hil_audio_loopback.py (F0 7D 1B 02 F7 / F0 7D 1B 01 F7).
+
+manufacturer: 0x7D
+
+# USB profile switch. Goes to the ESP MIDI port only; the STM bridge drops it.
+# 0x02 = MIDI+UAC2 (no CDC), anything else = default; the library sends 0x01.
+usb_mode:
+  id: 0x1B
+  default: 0x01
+  audio: 0x02
+
+# Audio routing / HIL control, both USB profiles. Query (0x10) answers with a
+# 14-byte frame on the ESP MIDI port; echo (0x09) carries a 28-bit sequence
+# number, 7 bits per byte, MSB first.
+audio_route:
+  id: 0x1D
+  subs:
+    adc_input: 0x01     # codec, input (0=DIFF 1=LINE1 2=LINE2)
+    mic_src: 0x02       # codec whose ADC the USB host records: 0, 1, 2 = both summed on the board (preset MIX), 3 = the pads-only mixer bus "USB rec" (digital, no DAC/ADC)
+    dac_output: 0x03    # codec, output (1=LINE1 2=LINE2 3=ALL)
+    volume: 0x04        # codec, 0..100
+    mute: 0x05          # codec, 0|1
+    audio_tasks: 0x06   # 0 = suspend RT mixer, 1 = resume (UAC2 mode parks it)
+    pad_press: 0x07     # pad, velocity
+    pad_release: 0x08   # pad
+    echo: 0x09          # seq (4 x 7-bit)
+    preview: 0x0A       # pad: audition its first sample (kit-browser preview path)
+    kit_load: 0x0B      # kit id (0..127): same path as CDC KIT_LOAD, for the USB-audio profile which has no CDC
+    bounce: 0x0C        # scene, track (0-based): CDC ASONG BOUNCE from the USB-audio profile; console "BOUNCE s t started|refused"
+    query: 0x10         # no args
+
+# Bootloader request. esp = 0x00 puts the ESP32-S3 into ROM download mode.
+bootloader:
+  id: 0x19
+  esp: 0x00
+
+# (id, sub) pairs a host must never send. 0x19 0x01 is the STM bootloader
+# request: from a USB host it hangs uartLoop on the bridge.
+host_denylist:
+  - [0x19, 0x01]
+
+# DAW Control app: F0 7D 1E <sub> ... F7. Every byte 7-bit; colours are 3 x
+# 7-bit r g b (device doubles them: (v>>1)<<1 is what a host sees echoed back
+# through LED_STATE), text is ASCII 0x20..0x7E, max 24 chars per row.
+# Source: platform-idf/docs/superpowers/specs/2026-09-06-daw-control-design.md
+# "Wire protocol" table; SysExProtocol.h carries the same numbers.
+daw:
+  id: 0x1E
+  proto_ver: 1
+  # host->dev unless noted. hello is also sent dev->host, unsolicited, when
+  # the app starts (so a running host script re-syncs) and every 2 s while no
+  # host is known. Hand-shake: the host answers EVERY device hello with its own
+  # (the app may start, or the board reboot, long after the host loaded); the
+  # device answers a host hello unless its own hello went out < 1 s before —
+  # that one is the answer to it, which is what keeps this from ping-ponging.
+  # A second host (the bench beside a running DAW) therefore gets its reply.
+  subs:
+    hello: 0x01        # host->dev: daw_id proto_ver | dev->host reply: proto_ver pads rows caps
+    led: 0x02           # pad r g b (one pad's resting colour)
+    led_all: 0x03       # 16 x (r g b), pad 0..15 in order
+    text: 0x04          # row (0..2) + chars; empty payload clears the row
+    beat: 0x05          # 0 off / 1 bar / 2 beat
+    transport: 0x06     # bits: 0 playing, 1 recording, 2 loop
+    mode: 0x07          # host->dev 0 pads / 1 steps / 2 clips (shown only); dev->host the board's layout, 0 pads / 3 control, after every host hello and on every double tap of the case
+    config: 0x08        # base_note channel (channel 0..15 on the wire)
+    pad: 0x09           # dev->host only: pad state(1 press / 0 release) — control mode; no notes/aftertouch go out there
+    ping: 0x0A          # host->dev, no args, once a second: the board drops a host silent for 5 s (rows/colours cleared, "no host") and hellos every 2 s until one answers
+    pan: 0x0B           # dev->host only: pad value — where on the pad the press sits (two cells per pad, from the STM32): 64 middle, 1 left edge, 127 right; while a control-mode pad is held and the value changes (FL script: tempo on the metronome pad)
+    launch: 0x0C        # dev->hub only: daw_id — start that DAW. The MIDI hub consumes it (never forwarded to a DAW); sent only for a DAW the hub's HOST_INFO `daws=` reported installed and not running
+    bye: 0x7F           # no args: host script unloading
+  # daw_id sent in `hello`.
+  daw_ids:
+    other: 0
+    fl_studio: 1
+    ableton: 2
+    reaper: 3
+  # `mode` values.
+  modes:
+    pads: 0
+    steps: 1
+    clips: 2
+    control: 3
+  # caps bitfield in the hello reply (dev->host).
+  caps:
+    rgb: 0
+    text: 1
+    encoder: 2
+    aftertouch: 3
+    control: 4         # sends `mode` 3 and `pad` (dawcontrol 0.3.0)
+
+# Companion control over SysEx: one CDC verb per request, the CDC reply back
+# verbatim in chunks. Works in both USB profiles — it is how a browser or a
+# DAW-side tool reaches the board from the audio profile, which has no CDC.
+#   host->dev  F0 7D 1F 01 <ASCII verb line> F7            (<= max_request bytes)
+#   dev->host  F0 7D 1F 02 <text> F7 ... F0 7D 1F 03 <text> F7   (03 = last chunk)
+# The allowlist is the BLE companion's (platform-idf hil_control_companion_handle);
+# anything else answers "ERR unsupported_companion_command", a second request
+# while one is in flight "ERR busy". USB_GUARD is readable here, never settable.
+companion:
+  id: 0x1F
+  # notify: host->dev F0 7D 1F 04 <verb> F7, run and never answered (not even an
+  # error; dropped while a request is in flight) — every listener of the port sees
+  # every reply, so a periodic sender (the MIDI hub's HOST_INFO) must not reply
+  # into someone else's exchange. Firmware with companion 0x04 (core 1.13).
+  subs:
+    request: 0x01
+    reply_more: 0x02
+    reply_last: 0x03
+    notify: 0x04
+  max_request: 190
+  # hil_control_companion_handle (platform-idf 724d3ad). ENC_* answer
+  # "ERR guard_prompt_active" while the USB serial guard prompt is up; WIFI_SCAN/
+  # PING/UP/DOWN answer "ERR use_cdc". Not here (CDC only): SEQ*, SONG, ASONG_SEQ,
+  # every ASONG argument but PLAY/STOP, CLICK, MIX_*, SMPL_*, ENC_GROUP, ENC_FOCUS, KIT_SWAP_LOG.
+  # FW_CHECK since platform-idf feat/companion-fw-check (after #47).
+  # ASONG, ASONG PLAY, ASONG STOP, KIT2 and STOOL since platform-idf d60ab94 (#67): matched
+  # WHOLE, so "ASONG PLAY 4", "KIT2 NOTE ..." and "STOOL REC" are still refused; a bare
+  # ASONG PLAY starts at bar 0.
+  allowed: [CP_CAPS, STM_FW_INFO, UI_STATE, APP_LIST, LED_STATE, ENC_PRESS, ENC_ROTATE,
+            APP_STOP, APP_START, PAD_PRESS, PAD_RELEASE, KIT_LOAD, KIT_STATUS,
+            SETTINGS_STATUS, USB_GUARD, HOST_INFO, FW_LATEST, FW_UPD_STATUS, FW_CATALOG,
+            APP_VERSIONS, FW_CHECK, WIFI_, REMOTE_STATUS,
+            ASONG, "ASONG PLAY", "ASONG STOP", KIT2, STOOL]

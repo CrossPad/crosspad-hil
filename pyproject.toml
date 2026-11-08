@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crosspad-hil"
+dynamic = ["version"]
+description = "Talk to a CrossPad: discovery, console, CDC verbs, MIDI SysEx, USB mode, OTA, HIL scenarios, CLI and NDJSON daemon"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "CrossPad contributors" }]
+keywords = ["crosspad", "hil", "hardware-in-the-loop", "midi", "sysex", "esp32", "embedded", "testing"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: MIDI",
+    "Topic :: Software Development :: Embedded Systems",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Hardware",
+]
+dependencies = [
+    "pyserial>=3.5",
+    "python-rtmidi>=1.5",
+    "pydantic>=2",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+audio = ["sounddevice>=0.4", "numpy>=1.24", "scipy>=1.10"]
+ble = ["bleak>=0.21"]
+all = ["crosspad-hil[audio,ble]"]
+dev = ["pytest>=8", "pytest-xdist>=3.6", "ruff>=0.5"]
+
+[project.scripts]
+crosspad-hil = "crosspad_hil.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/CrossPad/crosspad-hil"
+Repository = "https://github.com/CrossPad/crosspad-hil"
+Issues = "https://github.com/CrossPad/crosspad-hil/issues"
+
+[tool.setuptools.packages.find]
+include = ["crosspad_hil*"]
+
+[tool.setuptools.package-data]
+crosspad_hil = ["knowledge/*.yaml", "workflows/*.yaml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.setuptools.dynamic]
+version = { attr = "crosspad_hil.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["uses_hub: the test talks to an in-process hub (CROSSPAD_HIL_NO_HUB stays unset)"]
+
+# Sample lines copied verbatim from firmware printf formats are longer than 100
+# columns; wrapping them would stop them matching what the device actually sends.
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]

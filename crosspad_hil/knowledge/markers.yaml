@@ -1,0 +1,84 @@
+# Console knowledge for the ESP32-S3 boot log as seen on the STM32 bridge VCP.
+# Ported from platform-idf/tools/hil_smoke.py, hil_stability.py, hil_kit_churn.py.
+
+# Proof that a boot actually started (hil_smoke.BOOT_MARKERS). The ROM banner is
+# often missed because the host is still opening the port; "main_task: Started on
+# CPU0" arrives a little later and always arrives. More than one occurrence of
+# any of them within a capture = the board booted again = boot loop.
+boot_markers:
+  - "ESP-ROM:"
+  - "main_task: Started on CPU0"
+
+# Markers that MUST appear in a healthy boot, substring match (hil_smoke.REQUIRED_MARKERS).
+required:
+  - "Platform fully initialized"            # CrosspadPlatform up
+  - "STM32 ident:"                          # STM co-processor answered on I2C
+  - "Crosspad initialization complete"      # main hardware init done
+  - "All systems operational"               # app_main happy path
+  - "LVGL setup done successfully"          # display task alive
+  - "App registry initialized"              # GUI bootstrap
+  - "LoadMainScreen completed successfully" # launcher visible
+
+# hil_stability.REQUIRED_MARKERS: the same list minus "STM32 ident:" (an ESP
+# reset in a soak does not re-ident the STM).
+required_stability:
+  - "Platform fully initialized"
+  - "Crosspad initialization complete"
+  - "All systems operational"
+  - "LVGL setup done successfully"
+  - "App registry initialized"
+  - "LoadMainScreen completed successfully"
+
+# Should appear; missing ones are reported but do not fail (hil_smoke.OPTIONAL_MARKERS).
+optional:
+  - "SD Card mounted successfully"
+  - "ES8388 [1] started"                    # second codec (dual-codec boards)
+  - "DRV2605 found"
+
+# An ESP-IDF E-level line (hil_smoke: re.match(r"^E \(\d+\)", line)).
+error_line: '^E \(\d+\)'
+
+# E-level lines containing any of these substrings are tolerated (ERROR_ALLOWLIST).
+error_allow:
+  - "file not found"                        # missing STARTUP.wav is cosmetic
+
+# Any hit fails immediately. Union of hil_smoke.FATAL_PATTERNS,
+# hil_stability.FATAL_PATTERNS and hil_kit_churn.FATAL_RE, each a Python regex.
+fatal_patterns:
+  - 'Guru Meditation'
+  - 'abort\(\) was called'
+  - 'assert failed'
+  - 'CORRUPT HEAP'
+  - 'Stack smashing'
+  - 'LoadProhibited'
+  - 'StoreProhibited'
+  - 'InstrFetchProhibited'
+  - 'IllegalInstruction'
+  - 'Stack canary watchpoint'
+  - 'task_wdt'
+  - 'Task watchdog'
+  - 'Interrupt wdt timeout'
+  - 'rst:0x[0-9a-f]+ \(([A-Z_]*(PANIC|WDT|BROWNOUT))'
+
+# hil_stability.RST_REASON_RE — group 1 = code, group 2 = name.
+reset_reason: 'rst:(0x[0-9a-fA-F]+)\s*\(([^)]+)\)'
+
+# PerfMon block (hil_stability): starts at "Heap Statistics", one "Free:" line
+# per heap slot (group 1 = free bytes), ends at "Total tasks:".
+heap_block:
+  start: "Heap Statistics"
+  line: 'PerfMon:\s+Free:\s+(\d+) bytes'
+  end: "Total tasks:"
+
+# hil_kit_churn.KIT_REQ_RE — what the device says it received (group 1 = kit id,
+# group 2 = queued|started).
+kit_request: 'hil_control: KIT_LOAD (\d+) (queued|started)'
+
+# hil_kit_churn.CDC_DROP_RE — main.cpp idle-tick report of app_queue overflow.
+cdc_drops: 'CDC: (\d+) commands dropped'
+
+# The ROM banner substring that marks a reboot (hil_stability.RESET_MARKER + chip).
+reboot: "ESP-ROM:esp32s3"
+
+# hil_stability.BOOT_WINDOW_S.
+boot_timeout_s: 45
