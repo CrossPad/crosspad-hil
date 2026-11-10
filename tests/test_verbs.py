@@ -458,6 +458,22 @@ def test_ingain_reads_sets_and_refuses(make_link) -> None:
     assert ei.value.code == "NOT_SUPPORTED"
 
 
+
+def test_in_pair_reads_the_v113_reply_sets_and_refuses(make_link) -> None:
+    names = " 0=Mic + 1/2 1=Mic + 3/4 2=1/2 + 3/4"
+    link = make_link([("IN_PAIR 0", "INPAIR: ok=1 pair=0" + names),
+                      ("IN_PAIR 7", "INPAIR: ok=0 pair=2" + names),
+                      ("IN_PAIR", "INPAIR: ok=1 pair=2" + names)])
+    assert verbs.in_pair(link) == {"ok": True, "pair": 2, "names": {
+        0: "Mic + 1/2", 1: "Mic + 3/4", 2: "1/2 + 3/4"}}
+    assert verbs.in_pair(link, 0)["pair"] == 0
+    refused = verbs.in_pair(link, 7)
+    assert refused["ok"] is False and refused["pair"] == 2
+    none = make_link([("IN_PAIR", "ERR IN_PAIR none")])
+    with pytest.raises(HilError) as ei:
+        verbs.in_pair(none)
+    assert ei.value.code == "NOT_SUPPORTED"
+
 # ── ble_* ──────────────────────────────────────────────────────────────
 
 def test_ble_status_ints(make_link) -> None:

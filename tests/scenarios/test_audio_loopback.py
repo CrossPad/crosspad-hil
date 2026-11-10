@@ -182,8 +182,10 @@ def make_ctx(tmp_path: Path, mode: UsbMode = UsbMode.AUDIO) -> base.Context:
 
 
 def run(ctx: base.Context, **params: Any) -> base.Report:
-    # in2_gain off unless a test asks: the IN2 tests below stage their own CDC.
-    kw = {"duration_hours": 0.0, "tone_seconds": 1.0, "interval": 0.0, "in2_gain": None}
+    # in2_gain and free_loop off unless a test asks: the IN2 / input-pair tests
+    # below stage their own CDC.
+    kw = {"duration_hours": 0.0, "tone_seconds": 1.0, "interval": 0.0, "in2_gain": None,
+          "free_loop": False}
     kw.update(params)
     return audio_loopback.SCENARIO.run(ctx, audio_loopback.Params(**kw), base.Progress())
 
@@ -476,9 +478,17 @@ class Board:
         self.calls: list[tuple] = []
         self.fail_restore = False
         self.supported = True
+        # IN_PAIR, as v1.1.3 names the pairs; pair 2 is what dev_1ede sat on.
+        self.pair = 0
+        self.pair_names = {0: "Mic + 1/2", 1: "Mic + 3/4", 2: "1/2 + 3/4"}
+        self.pair_supported = True
+        self.pair_refuse: set[int] = set()
+        self.pair_calls: list[int | None] = []
+        self.order: list[str] = []
 
     def ingain(self, link: Any, input_index: int | None = None, db: int | None = None) -> dict:
         self.calls.append((input_index, db))
+        self.order.append(f"INGAIN {input_index} {db}" if input_index is not None else "INGAIN")
         if not self.supported:
             raise HilError(NOT_SUPPORTED, "INGAIN: device replied ERR INGAIN none")
         if input_index is not None:
@@ -486,6 +496,18 @@ class Board:
                 raise HilError(ENV, "no CDC")
             self.gain[f"IN{input_index + 1}"] = db if self.clamp_to is None else min(db, self.clamp_to)
         return dict(self.gain)
+
+    def in_pair(self, link: Any, pair: int | None = None) -> dict:
+        self.pair_calls.append(pair)
+        self.order.append("IN_PAIR" if pair is None else f"IN_PAIR {pair}")
+        if not self.pair_supported:
+            raise HilError(NOT_SUPPORTED, "IN_PAIR: device replied ERR IN_PAIR none")
+        ok = True
+        if pair is not None:
+            ok = pair in self.pair_names and pair not in self.pair_refuse
+            if ok:
+                self.pair = pair
+        return {"ok": ok, "pair": self.pair, "names": dict(self.pair_names)}
 
 
 class Link:
@@ -498,6 +520,7 @@ def board(monkeypatch: pytest.MonkeyPatch, bench: Bench) -> Board:
     b = Board()
     from crosspad_hil import verbs
     monkeypatch.setattr(verbs, "ingain", b.ingain)
+    monkeypatch.setattr(verbs, "in_pair", b.in_pair)
     monkeypatch.setattr(audio_loopback, "_open_cdc", lambda ctx: Link())
     return b
 
@@ -616,3 +639,106 @@ def test_a_cycle_the_host_lost_capture_of_is_not_a_fail(tmp_path: Path, bench: B
     assert not rep.passed and rep.exit_code == 2, rep.summary
     assert (rep.data["fail"], rep.data["host_lost"]) == (0, 1)
     assert "capture not measured" in rep.summary and "host lost 1.2 s" in rep.data["records"][0]["reasons"][0]
+
+
+# --------------------------------------------------------------------------- input pair (loop driver)
+
+def test_a_pair_that_hears_line34_is_swapped_for_the_run_and_put_back(
+        tmp_path: Path, bench: Bench, board: Board) -> None:
+    """dev_1ede sat on pair 2 (1/2 + 3/4): v1.1.3 keeps codec 1's loop driver off
+    then, and the gate recorded a floating jack, 0/126. Pair 0 for the run, 2 after."""
+    board.pair = 2
+    bench.visible = make_device(UsbMode.DEFAULT)
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), in2_gain=24, free_loop=True)
+    assert rep.passed, rep.summary
+    d = rep.data
+    assert (d["in_pair_before"], d["in_pair_during"], d["in_pair_after"]) == (2, 0, 2)
+    assert d["in_pair_restored"] is True and board.pair == 2
+    assert d["in_pair_names"]["2"] == "1/2 + 3/4"
+    # the pair before the gain (a pair switch must not undo the pin), and back in reverse
+    assert board.order == ["IN_PAIR", "IN_PAIR 0", "INGAIN", "INGAIN 1 24",
+                           "INGAIN 1 0", "IN_PAIR 2"]
+    assert bench.modes == ["audio", "default"]
+    from crosspad_hil import pins
+    assert pins.pending("dev_ab12") == {}
+
+
+def test_a_pair_without_line34_is_left_alone(tmp_path: Path, bench: Bench,
+                                             board: Board) -> None:
+    bench.visible = make_device(UsbMode.DEFAULT)
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), free_loop=True)
+    assert rep.passed, rep.summary
+    assert board.pair_calls == [None] and rep.data["in_pair_before"] == 0
+    assert rep.data["in_pair_restored"] is None
+
+
+def test_a_refused_pair_is_exit_2_naming_the_pair(tmp_path: Path, bench: Bench,
+                                                  board: Board) -> None:
+    board.pair = 1
+    board.pair_refuse = {0}
+    bench.visible = make_device(UsbMode.DEFAULT)
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), in2_gain=24, free_loop=True)
+    assert rep.exit_code == 2 and not rep.passed
+    assert "input pair 1 (Mic + 3/4) hears Line 3/4" in rep.summary
+    assert rep.data["cycles"] == 0 and board.pair == 1
+    assert board.calls == []            # the gain was never pinned
+    from crosspad_hil import pins
+    assert pins.pending("dev_ab12") == {}
+
+
+def test_the_pair_is_put_back_when_the_gain_pin_fails(tmp_path: Path, bench: Bench,
+                                                      board: Board) -> None:
+    board.pair = 2
+    board.clamp_to = 21
+    bench.visible = make_device(UsbMode.DEFAULT)
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), in2_gain=24, free_loop=True)
+    assert rep.exit_code == 2 and "IN2 gain is 21 dB" in rep.summary
+    assert board.pair == 2 and rep.data["in_pair_restored"] is True
+
+
+def test_the_pair_is_put_back_even_when_the_run_fails(tmp_path: Path, bench: Bench,
+                                                      board: Board) -> None:
+    board.pair = 2
+    bench.play_error = HilError(ENV, "aplay failed: device busy")
+    rep = run(make_ctx(tmp_path), free_loop=True)
+    assert rep.exit_code == 2 and "device busy" in rep.summary
+    assert board.pair == 2 and rep.data["in_pair_restored"] is True
+
+
+def test_a_pair_that_will_not_go_back_is_reported(tmp_path: Path, bench: Bench,
+                                                  board: Board) -> None:
+    board.pair = 2
+    board.pair_refuse = {2}             # takes 0 for the run, then will not go back
+    bench.visible = make_device(UsbMode.DEFAULT)
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), free_loop=True)
+    assert rep.exit_code == 2 and not rep.passed
+    assert "input pair left at 0, not restored to 2" in rep.summary
+    from crosspad_hil import pins
+    assert pins.pending("dev_ab12") == {"in_pair": 2}     # the next run keeps the promise
+
+
+def test_firmware_without_in_pair_runs_as_before(tmp_path: Path, bench: Bench,
+                                                 board: Board) -> None:
+    board.pair_supported = False
+    bench.visible = make_device(UsbMode.DEFAULT)
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), free_loop=True)
+    assert rep.passed and "IN_PAIR" in rep.data["in_pair_note"]
+
+
+def test_the_mic_path_leaves_the_pair_alone(tmp_path: Path, bench: Bench,
+                                            board: Board) -> None:
+    board.pair = 2
+    run(make_ctx(tmp_path), preset="mics", free_loop=True)
+    assert board.pair_calls == [] and board.pair == 2
+
+
+def test_a_pair_a_killed_run_left_is_kept_first(tmp_path: Path, bench: Bench,
+                                                board: Board) -> None:
+    from crosspad_hil import pins
+    board.pair = 0
+    pins.record("dev_ab12", pins.IN_PAIR, 2)
+    bench.visible = make_device(UsbMode.DEFAULT)
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), free_loop=True)
+    assert rep.data["in_pair_recovered"] == {"in_pair": 2}
+    assert rep.data["in_pair_before"] == 2 and board.pair == 2
+    assert pins.pending("dev_ab12") == {}

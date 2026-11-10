@@ -102,6 +102,11 @@ class Params:
                           "set over CDC before the run, the previous value put back after "
                           "(the board keeps it in NVS); the level floor follows it. "
                           "Omit to leave the board's gain alone"})
+    free_loop: bool = field(
+        default=True,
+        metadata={"help": "on an input pair that hears Line 3/4 (which switches the jack "
+                          "loop's driver off), select a pair without it for the run and put "
+                          "the old one back (the board keeps it in NVS); for the LINE1 presets"})
     exclusive_card: bool = field(
         default=True,
         metadata={"help": "pause the audio-nodes service for the run, so the capture opens "
@@ -299,6 +304,8 @@ class AudioLoopbackScenario:
                 "host_gain": [], "host_gain_final": None,
                 "ingain_before": None, "ingain_during": None, "ingain_after": None,
                 "ingain_restored": None, "min_rms_dbfs": MULTITONE_MIN_RMS_DBFS,
+                "in_pair_before": None, "in_pair_during": None, "in_pair_after": None,
+                "in_pair_restored": None,
             }
             artifacts: list[Artifact] = []
             try:
@@ -331,21 +338,23 @@ class AudioLoopbackScenario:
             artifacts.append(Artifact(path=str(events), mime="application/x-ndjson", role="log"))
 
             try:
-                previous_in2 = self._set_in2(ctx, p, data)
+                previous_in2, previous_pair = self._set_in2(ctx, p, data)
             except HilError as e:
                 if e.code != ENV:
                     raise
-                return _env(f"audio_loopback: {e.message}", data, artifacts)
+                return _env(f"audio_loopback: {e.message}"
+                            + (f" ({e.hint})" if e.hint else ""), data, artifacts)
             try:
                 report = self._measure(ctx, p, data, artifacts, ref_path, events, player,
                                        capture_mod, progress)
             finally:
-                self._restore_in2(ctx, p, data, previous_in2)
-            note = _audio.in2_not_restored(data, previous_in2)
-            if note is not None:
-                report = Report(passed=False, summary=f"{report.summary}; {note}",
-                                data=data, artifacts=artifacts,
-                                exit_code=report.exit_code or 2)
+                self._restore_in2(ctx, p, data, previous_in2, previous_pair)
+            for note in (_audio.in2_not_restored(data, previous_in2),
+                         _audio.in_pair_not_restored(data, previous_pair)):
+                if note is not None:
+                    report = Report(passed=False, summary=f"{report.summary}; {note}",
+                                    data=data, artifacts=artifacts,
+                                    exit_code=report.exit_code or 2)
             return report
 
         finally:
@@ -381,31 +390,49 @@ class AudioLoopbackScenario:
 
     # -- the jack's preamp gain -----------------------------------------
 
-    def _set_in2(self, ctx: Context, p: Params, data: dict[str, Any]) -> int | None:
-        """Pin IN2 at ``p.in2_gain`` for the run; the value to put back, or None.
+    def _set_in2(self, ctx: Context, p: Params,
+                 data: dict[str, Any]) -> tuple[int | None, int | None]:
+        """Drive the jack loop and pin IN2 at ``p.in2_gain`` for the run.
 
-        INGAIN is CDC only (not on the companion list), so this happens in the
-        default profile, before the switch to USB audio.
+        Returns ``(IN2 gain, input pair)`` to put back, each None when untouched.
+        INGAIN and IN_PAIR are CDC only (not on the companion list), so this
+        happens in the default profile, before the switch to USB audio. The pair
+        goes first: a pair that hears Line 3/4 leaves the LINE1 presets
+        recording a floating jack (see ``_audio.free_jack_loop``).
         """
-        if p.in2_gain is None or data.get("codec") != _audio.JACK_CODEC:
-            return None
+        pin_gain = p.in2_gain is not None and data.get("codec") == _audio.JACK_CODEC
+        free_loop = p.free_loop and data.get("adc_input") == _audio.LOOP_ADC_INPUT
+        if not (pin_gain or free_loop):
+            return None, None
         if ctx.device.usb_mode is not UsbMode.DEFAULT or ctx.device.ports.cdc is None:
             ctx.device = set_mode(ctx.device, UsbMode.DEFAULT, wait=True,
                                   timeout_s=p.enum_timeout)
         link = _open_cdc(ctx)
+        previous = previous_pair = None
         try:
-            previous = _audio.set_in2(ctx, link, p.in2_gain, data)
+            if free_loop:
+                previous_pair = _audio.free_jack_loop(ctx, link, data)
+            if pin_gain:
+                try:
+                    previous = _audio.set_in2(ctx, link, p.in2_gain, data)
+                except BaseException:
+                    # Nobody restores a pair that was never handed to the caller.
+                    if previous_pair is not None:
+                        _audio.put_pair_back(ctx, link, previous_pair, data)
+                    raise
         finally:
             link.close()
         if previous is not None:
             data["min_rms_dbfs"] = _audio.level_floor(MULTITONE_MIN_RMS_DBFS, p.in2_gain)
             ctx.log(f"level floor {data['min_rms_dbfs']:.0f} dBFS at IN2 {p.in2_gain} dB")
-        return previous
+        return previous, previous_pair
 
     def _restore_in2(self, ctx: Context, p: Params, data: dict[str, Any],
-                     previous: int | None) -> None:
-        """Put IN2 back, whatever the run did; read back. The board keeps it in NVS."""
-        _audio.restore_in2(ctx, previous, data, open_cdc=_open_cdc, set_mode_fn=set_mode,
+                     previous: int | None, previous_pair: int | None = None) -> None:
+        """Put IN2 and the input pair back, whatever the run did; read back. The
+        board keeps both in NVS."""
+        _audio.restore_in2(ctx, previous, data, previous_pair=previous_pair,
+                           open_cdc=_open_cdc, set_mode_fn=set_mode,
                            enum_timeout=p.enum_timeout,
                            back_to_audio=p.keep_mode
                            and ctx.device.usb_mode is UsbMode.AUDIO)
