@@ -28,7 +28,9 @@ in the USB-audio profile (the product's default), and whose sample engine took
 
 FAIL, with the numbers, when the CDC median exceeds ``--max-cdc-ms`` (2000),
 the USB-audio median exceeds ``--max-uac-ratio`` (1.2) times the CDC median of
-the same run, or the init exceeds ``--max-init-ms`` (500). A measurement the
+the same run *and* the CDC median by more than ``--max-uac-extra-ms`` (250: the
+USB tasks cost a swap a roughly fixed 120-175 ms, so a ratio alone fails a
+build for loading faster over CDC), or the init exceeds ``--max-init-ms`` (500). A measurement the
 bench could not take (no ``KIT_SWAP_LOG`` on an old firmware, no ``pw-play``,
 no ``EngineHandoff`` lines) is exit 2, not a pass.
 """
@@ -83,6 +85,9 @@ SETUP_CODES: frozenset[str] = frozenset({ENV, NOT_SUPPORTED, TIMEOUT, NO_CDC_IN_
 
 _ENGINE_BLOCK = re.compile(r"^[IWE] \((\d+)\) EngineHandoff: control block")
 _ENGINE_STARTED = re.compile(r"^[IWE] \((\d+)\) EngineHandoff: started")
+# The native engine (the default build) has no Init to time: its arena is the
+# general PSRAM heap, taken as kits need it, and this is its one boot line.
+_NATIVE_ENGINE = re.compile(r"^[IWE] \((\d+)\) EngineArena: dynamic")
 _KITSTATUS = re.compile(r"current=(-?\d+)\s+loading=(\d+)(?:\s+pending=(-?\d+))?")
 _SPK_LINE = r"usb_audio_bridge: SPK #"
 
@@ -102,7 +107,11 @@ class Params:
                               metadata={"help": "FAIL when the CDC median done_ms exceeds this"})
     max_uac_ratio: float = field(default=1.2,
                                  metadata={"help": "FAIL when the USB-audio median exceeds "
-                                                   "this times the CDC median"})
+                                                   "this times the CDC median (and the "
+                                                   "extra over it exceeds max_uac_extra_ms)"})
+    max_uac_extra_ms: float = field(default=250.0,
+                                    metadata={"help": "USB-audio swaps may take this much "
+                                                      "longer than CDC ones whatever the ratio"})
     max_init_ms: float = field(default=500.0,
                                metadata={"help": "FAIL when the sample engine's init at boot "
                                                  "exceeds this"})
@@ -124,6 +133,12 @@ class Params:
 
 
 # --------------------------------------------------------------------------- pure parts
+
+def is_native_engine(lines: list[str]) -> bool:
+    """The boot ran the native engine: its arena line and no prebuilt streamer."""
+    return (any(_NATIVE_ENGINE.search(line.strip()) for line in lines)
+            and not any(_ENGINE_BLOCK.search(line.strip()) for line in lines))
+
 
 def engine_init_ms(lines: list[str]) -> int | None:
     """ms between the first ``EngineHandoff: control block`` and the ``started``
@@ -199,13 +214,17 @@ def verdict(p: Params, data: dict[str, Any]) -> tuple[list[str], list[str]]:
     if uac is not None and cdc is not None:
         ratio = uac["median_ms"] / cdc["median_ms"] if cdc["median_ms"] else math.inf
         data["uac_ratio"] = round(ratio, 3)
-        if ratio > p.max_uac_ratio:
+        extra = uac["median_ms"] - cdc["median_ms"]
+        if ratio > p.max_uac_ratio and extra > p.max_uac_extra_ms:
             failures.append(f"USB-audio kit swap: median {uac['median_ms']:.0f} ms = "
                             f"{ratio:.2f}x CDC {cdc['median_ms']:.0f} ms > "
-                            f"{p.max_uac_ratio:.2f}x")
+                            f"{p.max_uac_ratio:.2f}x and +{extra:.0f} ms > "
+                            f"+{p.max_uac_extra_ms:.0f} ms")
     if p.init:
         init = data.get("init_ms")
-        if init is None:
+        if init is None and data.get("init_native"):
+            pass   # nothing to time: see _NATIVE_ENGINE
+        elif init is None:
             unmeasured.append("engine init: no 'EngineHandoff: control block' / 'started' "
                               "pair on the console after the reset")
         elif init > p.max_init_ms:
@@ -226,14 +245,17 @@ def summary(p: Params, data: dict[str, Any], failures: list[str],
     lines = [head, _fmt_phase(f"CDC kit swap (limit {p.max_cdc_ms:.0f} ms)", data.get("cdc"))]
     if p.uac:
         uac = _fmt_phase(f"USB-audio kit swap{' + host stream' if p.stream else ''} "
-                         f"(limit {p.max_uac_ratio:.2f}x CDC)", data.get("uac"))
+                         f"(limit {p.max_uac_ratio:.2f}x or +{p.max_uac_extra_ms:.0f} ms over CDC)",
+                         data.get("uac"))
         if data.get("uac_ratio") is not None:
             uac += f" = {data['uac_ratio']:.2f}x CDC"
         lines.append(uac)
     if p.init:
         init = data.get("init_ms")
         lines.append(f"  engine init at boot (limit {p.max_init_ms:.0f} ms): "
-                     + ("not measured" if init is None else f"{init} ms"))
+                     + (f"{init} ms" if init is not None
+                        else "none (native engine)" if data.get("init_native")
+                        else "not measured"))
     lines += [f"FAIL: {f}" for f in failures] + [f"not measured: {u}" for u in unmeasured]
     return "\n".join(lines)
 
@@ -380,7 +402,8 @@ class PerfScenario:
                            hint=f"KIT_SWAP_LOG keeps the last {KIT_RING} swaps only")
         data: dict[str, Any] = {
             "params": {"swaps": p.swaps, "max_cdc_ms": p.max_cdc_ms,
-                       "max_uac_ratio": p.max_uac_ratio, "max_init_ms": p.max_init_ms},
+                       "max_uac_ratio": p.max_uac_ratio,
+                       "max_uac_extra_ms": p.max_uac_extra_ms, "max_init_ms": p.max_init_ms},
             "kit_ids": {}, "provisioned": [], "init_ms": None, "init_lines": [],
             "cdc": None, "uac": None, "uac_ratio": None, "uac_host_s": [], "cdc_host_s": [],
             "uac_stream": None, "rows": [], "setup_errors": [], "stuck": [],
@@ -465,13 +488,16 @@ class PerfScenario:
                       ) -> None:
         boot = con.wait_boot(timeout_s=p.init_timeout, settle_s=1.0)
         data["boot_complete"] = bool(getattr(boot, "complete", False))
-        hit = con.expect([r"EngineHandoff: started"], timeout_s=p.init_timeout,
-                         since_seq=0)
-        lines = [line for _s, line in con.read(since_seq=0, match="EngineHandoff",
-                                               limit=50).lines]
+        hit = con.expect([r"EngineHandoff: started", r"EngineArena: dynamic"],
+                         timeout_s=p.init_timeout, since_seq=0)
+        lines = [line for match in ("EngineHandoff", "EngineArena: dynamic")
+                 for _s, line in con.read(since_seq=0, match=match, limit=50).lines]
         data["init_lines"] = lines
         data["init_ms"] = engine_init_ms(lines)
-        if hit.hit is None:
+        data["init_native"] = is_native_engine(lines)
+        if data["init_native"]:
+            ctx.log("native sample engine: no engine init to time at boot")
+        elif hit.hit is None:
             ctx.log("no 'EngineHandoff: started' on the console after the reset")
         else:
             ctx.log(f"sample engine init at boot: {data['init_ms']} ms")

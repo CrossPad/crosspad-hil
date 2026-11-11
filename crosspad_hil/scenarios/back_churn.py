@@ -73,7 +73,11 @@ DENY = re.compile(
     # The Sampler's 16 LEVELS switch: left on, every pad plays the source pad's
     # note at a velocity ramp until a restart, so the pitched_kit run after this
     # one hears one pitch on all sixteen pads.
-    r"16 levels|16 pitch|full level)"
+    r"16 levels|16 pitch|full level|"
+    # + NEW (a song in Arrange's picker, a kit in the kit browser) writes the
+    # card and leaves the new one open: the Arrange heap trend then compares a
+    # different song each visit and read +50..+130 B/visit as a leak.
+    r"\bnew\b)"
 )
 
 # Labels that go *up* a level: pressing one is not a descent, and pressing it
@@ -328,6 +332,49 @@ def _restore_audio(ctx: Context, link: CdcLink, home: tuple[int, int, int] | Non
         return True
     ctx.log(f"capture route not restored (wanted {home}, got {_audio_route(link)}) — "
             "audio steps after this run may fail on a healthy board")
+    return False
+
+
+SONG_OPEN_WAIT_S = 15.0
+
+
+def open_song(link: CdcLink) -> str | None:
+    """The song Arrange has open, or None when the board cannot say."""
+    try:
+        return verbs.asong(link).get("project") or None
+    except HilError:
+        return None
+
+
+def _restore_song(ctx: Context, link: CdcLink, home: str | None) -> bool:
+    """Open the song the visit started with again, before the kit and the heap.
+
+    Arrange's first control is the open song's name, which opens the song
+    picker: a walk that presses a row there leaves another song open, and the
+    open song (its tracks, its kit, its Pitch instrument) is internal RAM that
+    differs from song to song -- the Arrange trend read that as a leak. Before
+    the kit: a song names its kit and opening it loads that one. False when the
+    song could not be opened again, and the caller counts that against the trend.
+    """
+    if home is None or open_song(link) == home:
+        return True
+    try:
+        if verbs.asong(link, f"OPEN {home}").get("ok") != 1:
+            ctx.log(f"song {home!r} not reopened (refused) — heap after this visit is noisy")
+            return False
+        deadline = time.monotonic() + SONG_OPEN_WAIT_S
+        while time.monotonic() < deadline:
+            st = verbs.asong(link)
+            if st.get("project") == home and st.get("open") == 2:
+                return True
+            if st.get("open") == 3:
+                break
+            ctx.cancelled.wait(0.5)
+    except HilError as e:
+        ctx.log(f"song {home!r} not reopened ({e.code}) — heap after this visit is noisy")
+        return False
+    ctx.log(f"song {home!r} not reopened in {SONG_OPEN_WAIT_S:.0f} s "
+            "— heap after this visit is noisy")
     return False
 
 
@@ -627,6 +674,9 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int) -> Report:
         lines.append(f"  (capture route not restored after "
                      f"{data['audio_restores_failed']} visit(s): audio steps after "
                      f"this run may fail on healthy hardware)")
+    if data.get("song_restores_failed"):
+        lines.append(f"  (song not reopened after {data['song_restores_failed']} visit(s): "
+                     "the Arrange slope includes song-footprint noise)")
     if data.get("kit_restores_failed"):
         lines.append(f"  (kit not restored after {data['kit_restores_failed']} visit(s): "
                      "the KitSelector slope includes kit-footprint noise)")
@@ -679,7 +729,7 @@ class BackChurnScenario:
                 "depths": {}, "clicks": {}, "paths": {},
                 "fatal": [], "reboots": 0, "coredump": None,
                 "leak_bytes": params.leak_bytes,
-                "kit_home": -1, "kit_restores_failed": 0,
+                "kit_home": -1, "kit_restores_failed": 0, "song_restores_failed": 0,
                 "audio_home": None, "audio_restores_failed": 0,
                 "settings_home": None, "settings_restore_failed": [],
             }
@@ -795,6 +845,7 @@ class BackChurnScenario:
                         visit += 1
                         progress(visit, total, f"round {rnd}/{params.rounds} {name}")
                         free_before = settled_int_free(link, ctx.cancelled)
+                        song_before = open_song(link)
 
                         # ── in ──────────────────────────────────────────────
                         try:
@@ -874,6 +925,8 @@ class BackChurnScenario:
                                 f"({dump.get('line', '')})")
                             return _report(data, console_log, params.leak_bytes)
 
+                        if not _restore_song(ctx, link, song_before):
+                            data["song_restores_failed"] += 1
                         if not _restore_kit(ctx, link, kit_home):
                             data["kit_restores_failed"] += 1
                         if not _restore_audio(ctx, link, audio_home):
