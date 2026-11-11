@@ -20,6 +20,7 @@ from crosspad_hil.scenarios import _audio, base, get, perf, release_gate
 from crosspad_hil.scenarios.perf import (
     Params,
     engine_init_ms,
+    is_native_engine,
     phase_stats,
     pick_sink,
     rows_after,
@@ -110,6 +111,16 @@ def test_verdict_regression_fails_on_all_three_with_numbers() -> None:
     assert "= 1.44x CDC" in text and "3269 ms" in text
 
 
+def test_uac_over_ratio_but_within_the_fixed_extra_passes() -> None:
+    # v1.1.3 on dev_1ede: CDC got faster, the USB tasks' ~120 ms did not.
+    d = _data([477] * 6, [597] * 6, None)
+    d["init_native"] = True
+    assert verdict(Params(), d) == ([], [])
+    failures, _ = verdict(Params(max_uac_extra_ms=100), d)
+    assert failures[0].startswith("USB-audio kit swap: median 597 ms = 1.25x CDC 477 ms")
+    assert failures[0].endswith("+120 ms > +100 ms")
+
+
 def test_thresholds_are_parameters() -> None:
     d = _data([2818] * 6, [4065] * 6, 3269)
     assert verdict(Params(max_cdc_ms=3000, max_uac_ratio=1.5, max_init_ms=4000), d) == ([], [])
@@ -121,6 +132,23 @@ def test_missing_rows_and_init_are_unmeasured_not_passed() -> None:
     assert failures == []
     assert any("KIT_SWAP_LOG has no rows" in u for u in unmeasured)
     assert any("EngineHandoff" in u for u in unmeasured)
+
+
+NATIVE = "I (1944) EngineArena: dynamic: engines take PSRAM as they need it, 4596 kB free now"
+
+
+def test_native_engine_is_recognised_from_its_arena_line() -> None:
+    assert is_native_engine(["junk", NATIVE])
+    assert not is_native_engine([BLOCK, NATIVE])          # the prebuilt streamer ran
+    assert not is_native_engine([])
+
+
+def test_native_engine_has_no_init_and_is_not_unmeasured() -> None:
+    d = _data([474] * 6, None, None)
+    d["init_native"] = True
+    failures, unmeasured = verdict(Params(uac=False), d)
+    assert (failures, unmeasured) == ([], [])
+    assert "none (native engine)" in summary(Params(uac=False), d, failures, unmeasured)
 
 
 def test_short_or_stuck_phases_fail() -> None:

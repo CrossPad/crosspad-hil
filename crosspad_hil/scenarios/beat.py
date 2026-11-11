@@ -52,6 +52,20 @@ LEAD_S = -0.02
 IDLE_WATCH_S = 2.0
 SCREENSHOT = "/sdcard/crosspad/screen.bmp"
 BACKUP = "/sdcard/crosspad/hil_beat_settings_{tag}.json"
+
+_PADINFO_KIT = re.compile(r"\bkit=(\S+/kit\.json)")
+
+
+def kit_json_from_padinfo(raw: str) -> str | None:
+    """The card path of the kit a PADINFO line names (the Slicer's KIT writes to
+    /crosspad/slicer, not /crosspad/kits), or None when the line names none."""
+    m = _PADINFO_KIT.search(raw)
+    if not m:
+        return None
+    path = m.group(1)
+    return path if path.startswith("/sdcard/") else "/sdcard" + path
+
+
 # The launcher's tiles carry short names (gui.cpp's app labels), not the app ids.
 LAUNCHER_TILES = {
     "Sequencer": "Seq",
@@ -110,6 +124,7 @@ class BeatRun:
         self.home: dict[str, Any] = {}
         self.scene: int | None = None
         self.kit_id: int | None = None
+        self.kit_json: str | None = None
         self.loop: beat_fixture.Loop | None = None
         self.semis: dict[int, int] = {}
         self.reversed: list[int] = []
@@ -465,7 +480,8 @@ class BeatRun:
             pads.append(verbs.pad_info(self.L, i)["raw"])
         has = [i for i, r in enumerate(pads) if re.search(r"\bcount=[1-9]", r)]
         self.check(has == list(range(8)), f"pads with a sample: {[i + 1 for i in has]}, want 1..8")
-        return {"status": st, "pads": pads[:9]}
+        self.kit_json = kit_json_from_padinfo(pads[0])
+        return {"status": st, "pads": pads[:9], "kit_json": self.kit_json}
 
     def op_audition(self, step: workflows.Step) -> dict:
         verbs.smpl_counters(self.L)  # read-clear the peak
@@ -557,7 +573,9 @@ class BeatRun:
         return out
 
     def kit_json_path(self) -> str:
-        return f"/sdcard/crosspad/kits/{self.names['kit']}/kit.json"
+        if self.kit_json:
+            return self.kit_json
+        return f"/sdcard/crosspad/slicer/{self.names['kit']}/kit.json"
 
     def new_scene(self) -> int:
         st = verbs.seq(self.L, "STOP")
