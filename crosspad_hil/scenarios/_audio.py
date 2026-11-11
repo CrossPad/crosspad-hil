@@ -24,7 +24,7 @@ from crosspad_hil import fs, pins, verbs
 from crosspad_hil.cdc import CdcLink
 from crosspad_hil.console import Console
 from crosspad_hil.devices import UsbMode
-from crosspad_hil.errors import ENV, NOT_SUPPORTED, TIMEOUT, HilError
+from crosspad_hil.errors import ENV, NOT_SUPPORTED, TIMEOUT, UNKNOWN_VERB, HilError
 from crosspad_hil.kits import KITS_ROOT
 from crosspad_hil.kits import mkdir_tolerant as _mkdir
 from crosspad_hil.kits import push_kit_dir as _push_kit
@@ -347,16 +347,19 @@ def set_in2(ctx: Context, link: CdcLink, gain_db: int, data: dict[str, Any]) -> 
 
 
 def restore_in2(ctx: Context, previous: int | None, data: dict[str, Any], *,
+                previous_pair: int | None = None,
                 open_cdc: Callable[[Context], Any] | None = None,
                 set_mode_fn: Callable[..., Any] | None = None,
                 enum_timeout: float = 20.0, back_to_audio: bool = False) -> None:
-    """Put IN2 back to ``previous`` and read it back; never raises.
+    """Put IN2 back to ``previous`` and the input pair to ``previous_pair`` (each
+    only when not None), reading both back; never raises.
 
     Switches to the default profile first when the board has no CDC, and back to
-    USB audio afterwards when ``back_to_audio``. Records ``ingain_after`` and
-    ``ingain_restored``; a failure also lands in ``data["failures"]``.
+    USB audio afterwards when ``back_to_audio``. Records ``ingain_after`` /
+    ``ingain_restored`` and ``in_pair_after`` / ``in_pair_restored``; a failure
+    also lands in ``data["failures"]``.
     """
-    if previous is None:
+    if previous is None and previous_pair is None:
         return
     from crosspad_hil.usbmode import set_mode as _set_mode
 
@@ -368,21 +371,38 @@ def restore_in2(ctx: Context, previous: int | None, data: dict[str, Any], *,
             ctx.device = switch(ctx.device, UsbMode.DEFAULT, wait=True, timeout_s=enum_timeout)
         link = opener(ctx)
         try:
-            after = verbs.ingain(link, IN2_INDEX, previous)
+            if previous is not None:
+                try:
+                    after = verbs.ingain(link, IN2_INDEX, previous)
+                    data["ingain_after"] = after
+                    data["ingain_restored"] = after.get("IN2") == previous
+                    if data["ingain_restored"]:
+                        pins.clear(ctx.device.id, pins.IN2)
+                except HilError as e:
+                    data["ingain_restored"] = False
+                    data.setdefault("failures", []).append(
+                        f"IN2 gain not restored to {previous} dB: {e.code}: {e.message}")
+            if previous_pair is not None:
+                put_pair_back(ctx, link, previous_pair, data)
         finally:
             link.close()
-        data["ingain_after"] = after
-        data["ingain_restored"] = after.get("IN2") == previous
-        if data["ingain_restored"]:
-            pins.clear(ctx.device.id, pins.IN2)
         if was_audio and back_to_audio:
             ctx.device = switch(ctx.device, UsbMode.AUDIO, wait=True, timeout_s=enum_timeout)
     except HilError as e:
-        data["ingain_restored"] = False
-        data.setdefault("failures", []).append(
-            f"IN2 gain not restored to {previous} dB: {e.code}: {e.message}")
-    if not data.get("ingain_restored"):
+        # Only what was not already put back: a failed switch back to audio
+        # after both reads does not undo them.
+        if previous is not None and data.get("ingain_restored") is None:
+            data["ingain_restored"] = False
+            data.setdefault("failures", []).append(
+                f"IN2 gain not restored to {previous} dB: {e.code}: {e.message}")
+        if previous_pair is not None and data.get("in_pair_restored") is None:
+            data["in_pair_restored"] = False
+            data.setdefault("failures", []).append(
+                f"input pair not restored to {previous_pair}: {e.code}: {e.message}")
+    if previous is not None and not data.get("ingain_restored"):
         ctx.log(f"IN2 gain NOT restored to {previous} dB (the board keeps it)")
+    if previous_pair is not None and not data.get("in_pair_restored"):
+        ctx.log(f"input pair NOT restored to {previous_pair} (the board keeps it)")
 
 
 def in2_not_restored(data: dict[str, Any], previous: int | None) -> str | None:
@@ -391,6 +411,102 @@ def in2_not_restored(data: dict[str, Any], previous: int | None) -> str | None:
         return None
     return (f"IN2 gain left at {(data.get('ingain_during') or {}).get('IN2')} dB, "
             f"not restored to {previous} dB (the board keeps it in NVS)")
+
+
+def in_pair_not_restored(data: dict[str, Any], previous: int | None) -> str | None:
+    """The summary note for an input pair that was not put back, or None."""
+    if previous is None or data.get("in_pair_restored") is not False:
+        return None
+    return (f"input pair left at {data.get('in_pair_during')}, not restored to {previous} "
+            "(the board keeps it)")
+
+
+# ------------------------------------------------------ the input pair (the loop's driver)
+# The bench loop is codec 1 LOUT1/ROUT1 driving the Line 3/4 jack net, which
+# LINE1 of both codecs reads. Since platform-idf PR #158/#159 (2026-11-04) the
+# firmware powers that driver down, hi-Z, whenever the Mixer's input pair hears
+# Line 3/4 ("Mic + 3/4", "1/2 + 3/4"). A capture on LINE1 then records a
+# floating jack -- the 689 Hz / 2 kHz block-rate spur and hiss at about
+# -34 dBFS, every tone "missing" -- on a board that is fine: the v1.1.3 gate's
+# audio_loopback 0/164 and 0/126 (2026-11-08/09) on a board left on pair 2.
+# A scenario that measures through the loop selects a pair without Line 3/4
+# for the run and puts the old one back: the board keeps it.
+
+LOOP_ADC_INPUT = 1          # LINE1, on either codec: the jack net the loop drives
+LINE34 = "3/4"
+
+
+def pair_hears_line34(pair: int, names: dict[int, str]) -> bool:
+    return LINE34 in names.get(pair, "")
+
+
+def put_pair_back(ctx: Context, link: CdcLink, previous: int, data: dict[str, Any]) -> bool:
+    """IN_PAIR ``previous``, read back; records ``in_pair_after`` / ``in_pair_restored``."""
+    try:
+        after = verbs.in_pair(link, previous)
+    except HilError as e:
+        data["in_pair_restored"] = False
+        data.setdefault("failures", []).append(
+            f"input pair not restored to {previous}: {e.code}: {e.message}")
+        return False
+    data["in_pair_after"] = after["pair"]
+    data["in_pair_restored"] = after["pair"] == previous
+    if data["in_pair_restored"]:
+        pins.clear(ctx.device.id, pins.IN_PAIR)
+    return data["in_pair_restored"]
+
+
+def free_jack_loop(ctx: Context, link: CdcLink, data: dict[str, Any]) -> int | None:
+    """Make sure the jack loop is driven: on an input pair that hears Line 3/4,
+    select the first pair that does not for the run.
+
+    Returns the pair to put back, or None when nothing was changed (the pair is
+    fine, or the firmware has no IN_PAIR -- noted in ``data["in_pair_note"]``).
+    Records ``in_pair_before`` / ``in_pair_names`` / ``in_pair_during``. ENV
+    (exit 2) naming the pair when no pair without Line 3/4 exists or the board
+    refuses it: the loop would be measured floating, which says nothing about
+    the firmware.
+    """
+    try:
+        data["in_pair_recovered"] = pins.restore_pending(link, ctx.device.id, ctx.log,
+                                                         keys=(pins.IN_PAIR,)) or None
+        before = verbs.in_pair(link)
+    except HilError as e:
+        # ERR IN_PAIR none, or a firmware older than the verb (it echoes it).
+        if e.code not in (NOT_SUPPORTED, UNKNOWN_VERB):
+            raise
+        data["in_pair_note"] = f"{e.message}: no input pairs, the loop is the firmware's"
+        ctx.log(f"IN_PAIR: {e.message}; the jack loop is left as the board has it")
+        return None
+    pair, names = before["pair"], before["names"]
+    data["in_pair_before"] = pair
+    data["in_pair_names"] = {str(k): v for k, v in names.items()}
+    if not pair_hears_line34(pair, names):
+        return None
+    label = f"input pair {pair} ({names.get(pair)})"
+    free = [i for i in sorted(names) if not pair_hears_line34(i, names)]
+    if not free:
+        raise HilError(ENV, f"{label} hears Line 3/4, which turns the jack loop's driver off, "
+                            "and every pair does", hint="pairs: " + ", ".join(
+                                f"{i}={n}" for i, n in sorted(names.items())))
+    target = free[0]
+    # Written before the board is touched: a kill from here on leaves the journal
+    # holding the pair to put back.
+    pins.record(ctx.device.id, pins.IN_PAIR, pair)
+    during = verbs.in_pair(link, target)
+    data["in_pair_during"] = during["pair"]
+    if not during["ok"] or during["pair"] != target:
+        if during["pair"] != pair:
+            put_pair_back(ctx, link, pair, data)
+        else:
+            pins.clear(ctx.device.id, pins.IN_PAIR)
+        raise HilError(ENV, f"{label} hears Line 3/4, which turns the jack loop's driver off, "
+                            f"and the board refused IN_PAIR {target}",
+                       hint="set a pair without Line 3/4 in Mixer > IN (or IN_PAIR over "
+                            "CDC) and rerun")
+    ctx.log(f"{label} hears Line 3/4 and switches the jack loop's driver off: "
+            f"pair {target} ({names.get(target)}) for the run")
+    return pair
 
 
 # ------------------------------------------------------------- a kit, then the app

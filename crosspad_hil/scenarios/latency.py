@@ -166,6 +166,11 @@ class Params:
         metadata={"help": "pin codec 1's line preamp (INGAIN IN2) at this many dB for the run "
                           "and put the old value back (the board keeps it in NVS); for a "
                           "headphone loop too quiet to time. Default: leave it alone"})
+    free_loop: bool = field(
+        default=True,
+        metadata={"help": "on an input pair that hears Line 3/4 (which switches the jack "
+                          "loop's driver off), select a pair without it for the run and put "
+                          "the old one back (the board keeps it in NVS); for the LINE1 presets"})
     max_pad_ms: float | None = field(default=None,
                                      metadata={"help": "FAIL when the pad path's headline "
                                                        "(--gate-stat) is above this"})
@@ -588,6 +593,10 @@ class LatencyScenario:
                     data["prologue"]["pad_stats"] = f"{e.code}: {e.message}"
             if p.mixer_desk:
                 data["prologue"]["desk"] = self._load_desk(ctx, link, p.mixer_desk, state)
+            if p.free_loop and PRESETS[p.preset][1] == _audio.LOOP_ADC_INPUT:
+                # A pair that hears Line 3/4 leaves the loop undriven; the pair
+                # first, so its switch cannot undo the IN2 pin below.
+                state["pair_previous"] = _audio.free_jack_loop(ctx, link, data)
             if p.in2_gain is not None and PRESETS[p.preset][0] == _audio.JACK_CODEC:
                 # INGAIN is CDC only, so here, before the audio profile; the journal
                 # holds the old value until _finish has put it back.
@@ -785,9 +794,14 @@ class LatencyScenario:
                     ctx.log(f"{name} NOT restored: {e.message}")
         finally:
             link.close()
-        if state.get("in2_previous") is not None:
-            _audio.restore_in2(ctx, state["in2_previous"], data, enum_timeout=p.enum_timeout)
-            left["in2"] = "restored" if data.get("ingain_restored") else "NOT restored"
+        if state.get("in2_previous") is not None or state.get("pair_previous") is not None:
+            _audio.restore_in2(ctx, state.get("in2_previous"), data,
+                               previous_pair=state.get("pair_previous"),
+                               enum_timeout=p.enum_timeout)
+            if state.get("in2_previous") is not None:
+                left["in2"] = "restored" if data.get("ingain_restored") else "NOT restored"
+            if state.get("pair_previous") is not None:
+                left["in_pair"] = "restored" if data.get("in_pair_restored") else "NOT restored"
 
     # -- verdict -----------------------------------------------------------------
     def _analyse(self, ctx: Context, p: Params, data: dict[str, Any],

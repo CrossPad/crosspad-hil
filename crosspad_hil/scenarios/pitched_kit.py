@@ -128,6 +128,11 @@ class Params:
         metadata={"help": "line-in (IN2, codec 1) preamp gain in dB for the jack presets; "
                           "pinned over CDC for the run and put back after (the board keeps "
                           "it in NVS); the -50 dBFS sine floor follows it. Omit to leave it"})
+    free_loop: bool = field(
+        default=True,
+        metadata={"help": "on an input pair that hears Line 3/4 (which switches the jack "
+                          "loop's driver off), select a pair without it for the run and put "
+                          "the old one back (the board keeps it in NVS); for the LINE1 presets"})
     # No per-scenario --logdir: `crosspad-hil run pitched_kit --logdir DIR` (the CLI's
     # own flag, added after every scenario's params) already picks the workdir this
     # writes the capture WAV and per-pad slices into.
@@ -422,6 +427,8 @@ class PitchedKitScenario:
                 "pitch": [], "chord": None, "status": None, "failures": [],
                 "ingain_before": None, "ingain_during": None, "ingain_after": None,
                 "ingain_restored": None, "min_rms_dbfs": SINE_FLOOR_DBFS,
+                "in_pair_before": None, "in_pair_during": None, "in_pair_after": None,
+                "in_pair_restored": None,
             }
             artifacts: list[Artifact] = []
             try:
@@ -439,11 +446,18 @@ class PitchedKitScenario:
                 # Pinned before the capture; put back whatever happened since.
                 previous = (data["ingain_before"] or {}).get("IN2") \
                     if data["ingain_during"] is not None else None
-                _audio.restore_in2(ctx, previous, data, set_mode_fn=set_mode)
-            note = _audio.in2_not_restored(data, previous)
-            if note is not None:
-                report = Report(passed=False, summary=f"{report.summary}; {note}", data=data,
-                                artifacts=artifacts, exit_code=report.exit_code or 2)
+                # The pair too, unless the refused switch already put it back.
+                previous_pair = data["in_pair_before"] \
+                    if data["in_pair_during"] is not None \
+                    and data["in_pair_restored"] is None else None
+                _audio.restore_in2(ctx, previous, data, previous_pair=previous_pair,
+                                   set_mode_fn=set_mode)
+            for note in (_audio.in2_not_restored(data, previous),
+                         _audio.in_pair_not_restored(data, previous_pair)):
+                if note is not None:
+                    report = Report(passed=False, summary=f"{report.summary}; {note}",
+                                    data=data, artifacts=artifacts,
+                                    exit_code=report.exit_code or 2)
             return report
         finally:
             ctx.close_all()
@@ -460,6 +474,10 @@ class PitchedKitScenario:
 
         link = ctx.open_cdc()
         try:
+            if p.free_loop and PRESETS.get(p.preset, (None, None))[1] == _audio.LOOP_ADC_INPUT:
+                # A pair that hears Line 3/4 leaves the loop undriven; the pair
+                # first, so its switch cannot undo the IN2 pin below.
+                _audio.free_jack_loop(ctx, link, data)
             if p.in2_gain is not None and PRESETS.get(p.preset, (None,))[0] == _audio.JACK_CODEC:
                 if _audio.set_in2(ctx, link, p.in2_gain, data) is not None:
                     data["min_rms_dbfs"] = _audio.level_floor(SINE_FLOOR_DBFS, p.in2_gain)

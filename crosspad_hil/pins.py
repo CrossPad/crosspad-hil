@@ -1,6 +1,7 @@
 """A host-side journal of the persistent settings a run changed on a board.
 
-A scenario that pins a setting the board keeps in NVS (the jack preamp, IN2)
+A scenario that pins a setting the board keeps in NVS (the jack preamp, IN2;
+the input pair, which can switch the jack loop's driver off)
 puts it back in a ``finally``. A run that is killed never gets there: an
 ``audio_loopback`` stopped mid-run left IN2 at +24 dB in NVS, and the next
 person to plug a line source in heard it 24 dB hot. So the old value is
@@ -27,6 +28,7 @@ from crosspad_hil.errors import HilError
 
 PINS_ENV = "CROSSPAD_HIL_PINS"
 IN2 = "in2"
+IN_PAIR = "in_pair"
 
 
 def default_path() -> Path:
@@ -81,7 +83,12 @@ def _restore_in2(link: CdcLink, value: Any) -> bool:
     return verbs.ingain(link, 1, int(value)).get("IN2") == int(value)
 
 
-RESTORERS: dict[str, Callable[[CdcLink, Any], bool]] = {IN2: _restore_in2}
+def _restore_in_pair(link: CdcLink, value: Any) -> bool:
+    return verbs.in_pair(link, int(value))["pair"] == int(value)
+
+
+RESTORERS: dict[str, Callable[[CdcLink, Any], bool]] = {IN2: _restore_in2,
+                                                        IN_PAIR: _restore_in_pair}
 
 
 def restore_pending(link: CdcLink, device_id: str, log: Callable[[str], None],

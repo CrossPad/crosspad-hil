@@ -1000,6 +1000,35 @@ def ingain(link: CdcLink, input_index: int | None = None,
     return {k: int(v) for k, v in _INGAIN_PAIR.findall(line[len("INGAIN:"):])}
 
 
+_INPAIR_PAIR = re.compile(r"\bpair=(-?\d+)")
+_INPAIR_OK = re.compile(r"\bok=(\d)")
+_INPAIR_NAME = re.compile(r"\s(\d+)=(.+?)(?=\s+\d+=|\s*$)")
+
+
+def in_pair(link: CdcLink, pair: int | None = None) -> dict[str, Any]:
+    """The Mixer's input pair -- which inputs the two ADCs hear:
+    ``{"ok": True, "pair": 2, "names": {0: "Mic + 1/2", 1: "Mic + 3/4", 2: "1/2 + 3/4"}}``.
+
+    With ``pair`` it selects that pair first; ``ok`` is False when the board
+    refused it (``pair`` is then the one still in force). **The board keeps the
+    setting**, and a pair that hears Line 3/4 turns codec 1's DAC->ADC loop
+    driver off (platform-idf PR #158/#159), so a caller that changes it for a
+    measurement puts the old value back afterwards.
+    """
+    reply = link.transact("IN_PAIR" if pair is None else f"IN_PAIR {int(pair)}", "INPAIR:")
+    line = (reply.line or "").strip()
+    if line.startswith("ERR"):
+        raise HilError(NOT_SUPPORTED, f"IN_PAIR: device replied {line}",
+                       hint="this board has no input pairs", reply=line)
+    m = _INPAIR_PAIR.search(line) if line.startswith("INPAIR:") else None
+    if m is None:
+        raise HilError(NOT_SUPPORTED, "IN_PAIR: unparseable reply",
+                       hint="firmware predates this verb?", line=line)
+    ok = _INPAIR_OK.search(line)
+    names = {int(i): n.strip() for i, n in _INPAIR_NAME.findall(line[m.end():])}
+    return {"ok": ok is None or ok.group(1) == "1", "pair": int(m.group(1)), "names": names}
+
+
 def smpl_peak(link: CdcLink) -> dict[str, Any]:
     p = _query(link, "SMPL_PEAK", "SMPLPEAK:", "smplpeak")
     return {"peak": int(p["peak"]), "free": int(p["free"])}
@@ -1735,6 +1764,7 @@ VERBS: dict[str, Callable[..., dict[str, Any]]] = {
     "smpl_peak": smpl_peak, "smpl_counters": smpl_counters,
     "smpl_engine": smpl_engine, "smpl_engine_select": smpl_engine_select, "smpl_pitch": smpl_pitch,
     "ingain": ingain,
+    "in_pair": in_pair,
     "daw_state": daw_state,
     "pitched_status": pitched_status, "pitched_bench": pitched_bench,
     "ble_status": ble_status, "ble_start": ble_start, "ble_stop": ble_stop,

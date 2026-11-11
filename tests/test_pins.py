@@ -46,3 +46,19 @@ def test_an_entry_that_cannot_be_restored_stays(monkeypatch: pytest.MonkeyPatch)
     pins.record("dev_1", pins.IN2, 0)
     assert pins.restore_pending("LINK", "dev_1", lambda m: None) == {}
     assert pins.pending("dev_1") == {"in2": 0}
+
+
+def test_a_killed_run_left_the_input_pair_and_the_next_puts_it_back(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """audio_loopback killed with the loop freed (pair 0) on a board that sat on 2."""
+    state = {"pair": 0}
+
+    def in_pair(link: Any, pair: int | None = None) -> dict:
+        if pair is not None:
+            state["pair"] = pair
+        return {"ok": True, "pair": state["pair"], "names": {}}
+
+    monkeypatch.setattr(verbs, "in_pair", in_pair)
+    pins.record("dev_1", pins.IN_PAIR, 2)
+    assert pins.restore_pending("LINK", "dev_1", lambda m: None) == {"in_pair": 2}
+    assert state["pair"] == 2 and pins.pending("dev_1") == {}
