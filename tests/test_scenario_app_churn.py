@@ -524,3 +524,33 @@ def test_floor_zero_reports_without_judging(tmp_path: Path) -> None:
     assert report.passed is True
     assert report.data["low_water"]["low"]["dma_min"] == 952
     assert "(not judged)" in report.summary
+
+
+def test_a_loss_another_app_gets_back_is_handed_back_not_leaked(tmp_path: Path) -> None:
+    """PitchPlay ~+56 B/visit against KitSelector ~-48 B/visit (2026-11-03, -12).
+
+    Each visit is measured on its own, so a cache one app's visit fills and the
+    next app's visit empties is booked as a loss on the first and a gain on the
+    second, while the launcher at the end of every round lost nothing.
+    """
+    dev = ChurnDevice(leak_per_visit={"Leaky": 56, "Mixer": -48})
+    ctx, _con = make_ctx(tmp_path, dev)
+    report = app_churn.SCENARIO.run(
+        ctx, app_churn.Params(**FAST), base.Progress())
+    assert report.passed is True, report.summary
+    assert report.data["leaks"] == []
+    assert report.data["slopes"]["Leaky"]["leak"] is False
+    assert report.data["slopes"]["Leaky"]["refunded"] is True
+    assert report.data["round_slope"]["per_round"] == pytest.approx(8)
+    assert "handed back before the round ended" in report.summary
+
+
+def test_a_partly_offset_loss_is_still_a_leak(tmp_path: Path) -> None:
+    """Another app's small gain does not hide a loss every round still pays."""
+    dev = ChurnDevice(leak_per_visit={"Leaky": 56, "Mixer": -10})
+    ctx, _con = make_ctx(tmp_path, dev)
+    report = app_churn.SCENARIO.run(
+        ctx, app_churn.Params(**FAST), base.Progress())
+    assert report.passed is False
+    assert any(leak.startswith("Leaky:") for leak in report.data["leaks"]), report.summary
+    assert report.data["round_slope"]["per_round"] == pytest.approx(46)

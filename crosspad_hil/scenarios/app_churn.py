@@ -11,7 +11,9 @@ modes only show up here:
 
 The device is driven over CDC (APP_LIST / APP_START / APP_STOP), the internal
 heap is sampled with MEM after every close, and the STM VCP console — opened
-WITHOUT resetting the ESP — is watched for fatals and reboots.
+WITHOUT resetting the ESP — is watched for fatals and reboots. An app's loss
+counts as a leak only while the launcher's heap at the end of each round loses
+it too: a cache one app's visit fills and another's empties is handed back.
 
 The lowest internal and DMA-capable free heap since boot (MEM int_min /
 dma_min) is judged against a floor too, and each visit that lowered it is named:
@@ -187,6 +189,21 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int,
     leaks: list[str] = []
     unmeasured: list[str] = []
     slopes: dict[str, dict[str, Any]] = {}
+    # The launcher's heap at the end of every round is the ground truth, as in
+    # back_churn. Each visit is measured on its own, so a cache one app's visit
+    # fills and the next one empties reads as a loss in the first column and a
+    # gain in the second (PitchPlay ~+56 B, KitSelector ~-48 B a visit,
+    # 2026-11-03 and -12) while the round series stays flat. An app that really
+    # loses `rate` a visit is visited once a round, so the round loses at least
+    # that much; when it loses substantially less, the bytes came back inside
+    # the round.
+    round_rate: float | None = None
+    rs = slope(data.get("heap_rounds", []))
+    if rs is not None and rs[2] > 1:
+        r_head, r_tail, r_n, r_drop = rs
+        round_rate = per_visit(r_drop, r_n)
+        data["round_slope"] = {"head": r_head, "tail": r_tail, "rounds": r_n,
+                               "per_round": round_rate}
     for app, series in data["trend"].items():
         s = slope(series)
         if s is None:
@@ -197,10 +214,13 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int,
         # With the windows zero visits apart there is no rate to compute, and
         # reporting 0 B/visit would be an answer rather than the absence of one.
         measurable = visits > 1
-        leak = measurable and rate > leak_bytes
+        over = measurable and rate > leak_bytes
+        refunded = over and round_rate is not None and round_rate + leak_bytes < rate
+        leak = over and not refunded
         slopes[app] = {
             "head": head, "tail": tail, "visits": visits,
-            "per_visit": rate, "leak": leak, "measurable": measurable,
+            "per_visit": rate, "leak": leak, "refunded": refunded,
+            "measurable": measurable,
         }
         if not measurable:
             unmeasured.append(app)
@@ -208,6 +228,8 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int,
                          "(not measurable at this many rounds)")
             continue
         verdict = ""
+        if refunded:
+            verdict = "  (handed back before the round ended)"
         if leak:
             verdict = f"  <-- LEAK ~{int(rate)} B/visit"
             leaks.append(
@@ -220,6 +242,9 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int,
         )
     data["slopes"] = slopes
     data["leaks"] = leaks
+    if round_rate is not None:
+        lines.append(f"  {'launcher, per round':<20} {int(r_head):>8} -> {int(r_tail):>8}  "
+                     f"({int(round_rate):+6} B/round)")
     data["unmeasured"] = unmeasured
     lw_lines, lw_failures = low_water.judge()
     lines.extend(lw_lines)
@@ -240,8 +265,11 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int,
                          f"{len(unmeasured)} app(s) at these rounds (needs 4+): "
                          + ", ".join(unmeasured))
         else:
-            lines.append(f"PASS — no crashes, no per-app heap slope over {leak_bytes} B/visit, "
-                         "heap low-water above the floors")
+            handed = [a for a, v in slopes.items() if v["refunded"]]
+            lines.append(f"PASS — no crashes, no heap lost over {leak_bytes} B/visit, "
+                         "heap low-water above the floors"
+                         + (f"; handed back before the round ended: {', '.join(handed)}"
+                            if handed else ""))
         passed = True
     lines.append(f"console log: {console_log}")
     return Report(
@@ -390,6 +418,7 @@ class AppChurnScenario:
                     m = verbs.mem(link)
                     low_water.sample(m, f"end of round {rnd}")
                     heap_now = int(m["int_free"])
+                    data.setdefault("heap_rounds", []).append(heap_now)
                     psram = (f"  psram_free={m.get('psram_free')}"
                              f" psram_largest={m.get('psram_largest')}")
                     data.setdefault("psram", []).append(
