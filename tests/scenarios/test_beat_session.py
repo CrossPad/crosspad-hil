@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from crosspad_hil.scenarios import beat_session, beat_to_song, get
 from crosspad_hil.scenarios.beat_session import _BeatRun
 
@@ -22,3 +24,25 @@ def test_a_pass_is_whole_from_its_first_bar_to_its_last_and_counts_the_voices_st
 def test_a_pass_seen_from_its_middle_is_not_counted():
     rows = [row(0, 1.5, 10), row(1, 2.5, 12), row(2, 3.6, 14), row(3, 0.2, 14)]
     assert _BeatRun.passes(rows, 0, 4) == []
+
+
+def test_a_stop_before_the_first_step_is_a_bench_problem_not_a_pass(tmp_path):
+    from crosspad_hil.scenarios.song_elements import _Stop
+
+    class Run:
+        data: dict = {"steps": {}}
+        failures: list = []
+        artifacts: list = []
+        waits: dict = {}
+        listen = None
+        link = None
+
+        def setup(self):
+            pass
+
+        def open_arrange(self):
+            raise _Stop("power clicks did not bring the home map back")
+
+    ctx = SimpleNamespace(workdir=tmp_path, close_all=lambda: None, check_cancelled=lambda: None)
+    rep = beat_session.run_phases("beat_session", Run(), ctx, [], lambda *a: None)
+    assert not rep.passed and rep.exit_code == 2 and "home map" in rep.summary

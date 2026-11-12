@@ -557,8 +557,14 @@ def run_phases(name: str, run: _BeatRun, ctx: Context,
                     run.failures.append(f"{what}: {e.message}; {e.hint}"[:400])
                     raise _Stop(what) from e
         progress(len(phases), len(phases), "done")
-    except _Stop:
-        pass
+    except _Stop as e:
+        # A stop names its failure first (need(), missing()); one that did not -- the
+        # bench never got to the first step (a dialog no power click closes) -- is no
+        # PASS: it was a PASS with no step run (2026-11-05).
+        if not run.failures:
+            if not run.data["steps"]:
+                return _bench(name, f"the run could not start: {e}", run.data)
+            run.failures.append(f"stopped: {e}")
     except HilError as e:
         if e.code == ENV and not run.data["steps"]:
             return _bench(name, e.message, run.data)
