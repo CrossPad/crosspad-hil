@@ -43,13 +43,14 @@ either side is not a difference -- the same rule as :mod:`board_state`.
 """
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Callable
 from typing import Any
 
 from crosspad_hil import verbs
 from crosspad_hil.cdc import CdcLink
-from crosspad_hil.errors import BAD_ARGS, CANCELLED, NOT_SUPPORTED, TIMEOUT, UNKNOWN_VERB, HilError
+from crosspad_hil.errors import BAD_ARGS, CANCELLED, ENV, NOT_SUPPORTED, TIMEOUT, UNKNOWN_VERB, HilError
 
 # AUDIO_STATUS reports these by number; the verbs take them by name
 # (audio_route_control.cpp parse_adc_input_name / parse_dac_output_name).
@@ -60,6 +61,12 @@ SAMPLER_CHANNEL = "Sampler"
 # Codec output volumes below this make a pad inaudible at the capture; factory is 64.
 MIN_OUT_VOL = 40
 FACTORY_VOL = 64
+# A quiet run: with CROSSPAD_HIL_QUIET=1 no scenario runs on a board whose speakers
+# are saved louder than QUIET_VOL, and nothing here writes codec 0's volume (a write
+# sets the speakers' pair too, and saves it as their level).
+QUIET_ENV = "CROSSPAD_HIL_QUIET"
+QUIET_VOL = 5
+SPEAKER_CODEC = 0
 VOL_TOLERANCE = 0.005         # MIX_LVL volumes are printed to two decimals
 
 NO_MIXER_VERB = ("the firmware has no MIX_MUTE / MIX_VOL / MIX_OUT_MUTE / MIX_OUT_VOL "
@@ -192,6 +199,8 @@ def diff(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[di
     for field, label in (("adc", "ADC input"), ("out", "DAC output"),
                          ("vol", "codec volume"), ("mute", "codec mute")):
         for i, (x, y) in enumerate(zip(ba.get(field) or [], aa.get(field) or [], strict=False)):
+            if field == "vol" and i == SPEAKER_CODEC and quiet():
+                continue
             if x != y:
                 fixable = field != "out" or x in DAC_NAMES
                 add((field, i), f"{label} codec {i}", x, y, fixable)
@@ -225,6 +234,33 @@ def diff(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[di
 
 
 # --- putting it back -------------------------------------------------------------
+
+def quiet() -> bool:
+    """True in a quiet run (``CROSSPAD_HIL_QUIET`` set to anything but empty or 0)."""
+    return os.environ.get(QUIET_ENV, "0") not in ("", "0")
+
+
+def check_quiet(dev: CdcLink) -> None:
+    """In a quiet run, refuse a board whose speakers come up louder than ``QUIET_VOL``.
+
+    The speakers are one output pair of codec 0 and have a level of their own only
+    in the saved settings (``OUTVOL`` ``out2=``), which a restart applies to that
+    pair alone. Every volume verb sets the whole codec, the pair the loop captures
+    read included, so nothing here lowers it during a run: the level is saved and
+    the board restarted before one. A board that does not answer ``OUTVOL`` (still
+    booting, transfer mode, an older firmware) is left alone.
+    """
+    try:
+        saved = verbs.outvol(dev).get("out2")
+    except HilError as e:
+        if e.code == CANCELLED:
+            raise
+        return
+    if isinstance(saved, int) and saved > QUIET_VOL:
+        raise HilError(ENV, f"quiet run: the speakers are saved at {saved} %, above {QUIET_VOL} %",
+                       hint=f"crosspad-hil cdc AUDIO_VOL {SPEAKER_CODEC} {QUIET_VOL} && "
+                            "crosspad-hil console --reset, then run again")
+
 
 def _ok(dev: CdcLink, cmd: str) -> None:
     """Send an OK/ERR verb; an ERR (or an echo, a timeout) is a HilError."""
@@ -404,6 +440,8 @@ def problems(snap: dict[str, Any], channel: str = SAMPLER_CHANNEL,
                                       f"send to out {o} switched on",
                               "cmd": f"MIX_ROUTE {ch['ch']} {o} 1"})
     for codec, vol in enumerate((snap.get("audio") or {}).get("vol") or []):
+        if codec == SPEAKER_CODEC and quiet():
+            continue
         if vol < min_out_vol:
             found.append({"text": f"codec {codec} output volume {vol} (< {min_out_vol}) raised "
                                   f"to {FACTORY_VOL}", "cmd": f"AUDIO_VOL {codec} {FACTORY_VOL}"})

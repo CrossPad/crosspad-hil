@@ -79,6 +79,13 @@ API_RANK = {"Windows WASAPI": 0, "ALSA": 0, "Core Audio": 0,
             "Windows WDM-KS": 1, "Windows DirectSound": 3, "MME": 4}
 
 
+def _speakers_kept_quiet(codec: int) -> bool:
+    """A quiet run never writes the volume of the speakers' codec (audio_state.quiet())."""
+    from crosspad_hil import audio_state
+    return codec == audio_state.SPEAKER_CODEC and audio_state.quiet()
+
+
+
 # --------------------------------------------------------------------------- model
 
 
@@ -644,7 +651,7 @@ class CaptureSession:
             for c in (() if adc is None else (0, 1) if codec == CAPTURE_MIX else (codec,)):
                 io.send_sysex(sysex_audio_route(_sub("adc_input"), c, adc))
                 self._sleep(0.06)
-            if self.volume is not None and codec in (0, 1):
+            if self.volume is not None and codec in (0, 1) and not _speakers_kept_quiet(codec):
                 io.send_sysex(sysex_audio_route(_sub("volume"), codec, self.volume))
                 self._sleep(0.06)
         finally:
@@ -781,6 +788,8 @@ class CaptureSession:
             # speakers quiet for whoever picks the board up next.
             if self.volume is not None:
                 for codec, value in enumerate(home.get("vol", [])[:2]):
+                    if _speakers_kept_quiet(codec):
+                        continue
                     io.send_sysex(sysex_audio_route(_sub("volume"), codec, value))
                     self._sleep(0.06)
         except Exception as exc:  # noqa: BLE001

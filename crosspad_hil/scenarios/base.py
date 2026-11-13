@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from crosspad_hil import hub_link
+from crosspad_hil import audio_state, hub_link
 from crosspad_hil.cdc import CdcLink
 from crosspad_hil.console import Console
 from crosspad_hil.devices import Device, UsbMode, discover, select
@@ -186,6 +186,8 @@ class Context:
             link.wait_ready()
             self._console_opened = False
             self._cdc_readied = True
+        if audio_state.quiet() and self.serial_factory is open_serial:
+            audio_state.check_quiet(link)
         return link
 
     def check_cancelled(self) -> None:
