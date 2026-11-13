@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from crosspad_hil import card_hold, verbs
+from crosspad_hil import card_hold, fixtures, verbs
 from crosspad_hil.cdc import CdcLink
 from crosspad_hil.devices import UsbMode
 from crosspad_hil.errors import (
@@ -91,7 +91,9 @@ class Params:
                       metadata={"help": "speedtest (drive the pads and score them) or live"})
     kit: int | None = field(default=None, metadata={"help": "kit id to load first"})
     kit_name: str | None = field(
-        default=None, metadata={"help": "kit by name, case-insensitive (wins over --kit)"})
+        default=None, metadata={"help": "kit by name, case-insensitive (wins over --kit); "
+                                        "with neither, speedtest plays the HIL CLICK fixture "
+                                        "and live records the current kit"})
     preset: str = field(
         default="headphone",
         metadata={"help": "capture path: headphone (the unity DAC->ADC loop), "
@@ -408,7 +410,17 @@ class SamplerRecordScenario:
         ble_notes: dict[int, int] | None = None
         ble_addr: str | None = None
         try:
-            kit_id, kit_name = self._prepare(ctx, p, link)
+            fixture_kit: str | None = None
+            if p.mode == "speedtest" and p.kit is None and p.kit_name is None:
+                # The score is an onset count, and only a kit of short, loud
+                # one-shots gives one onset a hit: on a musical kit the soft
+                # samples under the tails of the long ones read as missing hits
+                # while the board reports every one played.
+                fixture_kit = fixtures.CLICK_NAME
+                link, data["provisioned"] = _audio.ensure_kits(
+                    ctx, link, [fixture_kit], fixtures.write_click_kits,
+                    missing_hint_suffix=" -- HIL CLICK is built by crosspad_hil.fixtures")
+            kit_id, kit_name = self._prepare(ctx, p, link, fixture_kit)
             data["kit"], data["kit_name"] = kit_id, kit_name
             if p.mode == "speedtest" and p.stim == "ble":
                 ble_notes, ble_addr = self._prepare_ble(ctx, link)
@@ -451,8 +463,10 @@ class SamplerRecordScenario:
         return self._verdict(p, data, artifacts)
 
     # -- setup, all of it over CDC and all of it before the switch ----------
-    def _prepare(self, ctx: Context, p: Params, link: CdcLink) -> tuple[int, str]:
-        kit_id, name, current = _audio.resolve_kit(link, kit_id=p.kit, kit_name=p.kit_name)
+    def _prepare(self, ctx: Context, p: Params, link: CdcLink,
+                 fixture_kit: str | None = None) -> tuple[int, str]:
+        kit_id, name, current = _audio.resolve_kit(link, kit_id=p.kit,
+                                                   kit_name=p.kit_name or fixture_kit)
         _audio.load_kit(ctx, link, kit_id, name, current, wait_s=KIT_LOAD_TIMEOUT_S)
         # app_start polls APP_LIST itself and raises TIMEOUT if the launch never
         # lands; the settle wait is the old script's, for the app's first LVGL
