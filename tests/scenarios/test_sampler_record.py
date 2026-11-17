@@ -572,3 +572,27 @@ def test_hits_the_host_lost_are_not_charged_to_the_device(bench) -> None:
     assert not rep.passed and rep.exit_code == 2, rep.summary
     assert "capture not measured — host lost 2.0 s" in rep.summary
     assert bench.analyzed == [] and rep.data["failed_rates"] == []
+
+
+def test_rates_take_fractional_hits_per_second() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    base.params_to_argparse(sampler_record.Params, parser)
+    p = base.argparse_to_params(sampler_record.Params, parser.parse_args(["--rates", "1.5,3"]))
+    assert p.rates == [1.5, 3.0]
+    _pattern, steps, _total = sampler_record.build_schedule(
+        p.rates[:1], step_s=2.0, gap_s=0.0, pads=[0], gate_ms=30.0, velocity=110, lead_s=0.0)
+    assert steps[0]["n"] == 3
+    assert steps[0]["times"] == pytest.approx([0.0, 2 / 3, 4 / 3])
+
+
+def test_a_fractional_rate_is_reported_as_given(bench) -> None:
+    lines: list[str] = []
+    bench.ctx.log = lines.append
+    bench.onset = {"missed": [1]}          # index 0 is the lead-in, 1 the 1.5/s step's hit
+    rep = bench.run(rates=[1.5, 8], step=0.25, gap=0.0, pads="0-1", gate_ms=10)
+    assert not rep.passed and rep.exit_code == 1
+    assert rep.data["failed_rates"] == [1.5]
+    assert "at or below 16/s: 1.5/s" in rep.summary
+    assert any("1.5/s" in line and "FAIL" in line for line in lines)
