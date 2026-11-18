@@ -105,7 +105,7 @@ class Params:
     volume: int | None = field(default=20,
                                metadata={"help": "capture codec volume 0..100 "
                                                  "(default 20: the loop clips above it)"})
-    rates: list[int] = field(
+    rates: list[float] = field(
         default_factory=lambda: [2, 4, 6, 8, 12, 16, 20, 25],
         metadata={"help": "speedtest hit rates, hits/s"})
     step: float = field(default=3.0, metadata={"help": "seconds per rate step"})
@@ -544,7 +544,7 @@ class SamplerRecordScenario:
             if step["rate"] <= p.fail_rate and record["ratio"] < p.min_audible:
                 flag = "  <-- FAIL"
                 data["failed_rates"].append(step["rate"])
-            ctx.log(f"  {step['rate']:5.0f}/s  {step['n']:8d}  {got:7d}  "
+            ctx.log(f"  {step['rate']:5g}/s  {step['n']:8d}  {got:7d}  "
                     f"{record['ratio']:6.2f}{flag}")
         data["audible"] = total_audible
         if total_audible == 0:
@@ -582,8 +582,8 @@ class SamplerRecordScenario:
         if why is None:
             problems += _audio.capture_problems(capture, health)
         if data["failed_rates"]:
-            rates = ", ".join(f"{r:.0f}/s" for r in data["failed_rates"])
-            problems.append(f"hits went missing at or below {p.fail_rate:.0f}/s: {rates}")
+            rates = ", ".join(f"{r:g}/s" for r in data["failed_rates"])
+            problems.append(f"hits went missing at or below {p.fail_rate:g}/s: {rates}")
         if data["send_failures"]:
             problems.append(f"{data['send_failures']} pad message(s) could not be sent — "
                             "the device left the bus mid-run")
