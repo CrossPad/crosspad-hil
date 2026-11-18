@@ -20,7 +20,7 @@ import pytest
 from crosspad_hil import cdc as cdc_mod
 from crosspad_hil.cdc import CdcLink
 from crosspad_hil.devices import AudioCardInfo, Device, MidiPortInfo, Ports, SerialPortInfo, UsbMode
-from crosspad_hil.errors import ENV, NO_DEVICE, NOT_SUPPORTED, HilError
+from crosspad_hil.errors import BAD_ARGS, ENV, NO_DEVICE, NOT_SUPPORTED, HilError
 from crosspad_hil.scenarios import base, get, sampler_record
 from tests.fakes import FakeSerial
 
@@ -596,3 +596,11 @@ def test_a_fractional_rate_is_reported_as_given(bench) -> None:
     assert rep.data["failed_rates"] == [1.5]
     assert "at or below 16/s: 1.5/s" in rep.summary
     assert any("1.5/s" in line and "FAIL" in line for line in lines)
+
+
+def test_rates_over_the_daemon_stay_numbers() -> None:
+    p = base.params_from_dict(sampler_record.Params, {"rates": [1.5, "3"]})
+    assert p.rates == [1.5, 3.0]
+    with pytest.raises(HilError) as e:
+        base.params_from_dict(sampler_record.Params, {"rates": "1.5,x"})
+    assert e.value.code == BAD_ARGS
