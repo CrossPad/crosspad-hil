@@ -45,6 +45,29 @@ The state is one JSON file every process shares —
 between `<!-- bench:status -->` markers in that file; `crosspad-hil bench md
 --write FILE` does it once.
 
+## A quiet run
+
+```bash
+CROSSPAD_HIL_QUIET=1 crosspad-hil run rt_glitch
+```
+
+With `CROSSPAD_HIL_QUIET=1` a scenario refuses (exit 2) a board whose speakers
+are saved louder than 5 %, and nothing in the run writes codec 0's volume. Set
+the board up once:
+
+```bash
+crosspad-hil cdc AUDIO_VOL 0 5      # saved as the speakers' level
+crosspad-hil console --reset        # a restart gives it to the speakers' pair alone
+```
+
+The speakers are one output pair of codec 0; the Phones 1/2 pair, which the
+loop captures read, keeps its own level after the restart. `AUDIO_VOL` and
+`OUTVOL` set both pairs at once, so lowering them during a run silences the
+capture: `kit_swap_audio` then reports hits that made no sound and `rt_glitch`
+SILENT. Put the speakers back with `AUDIO_VOL 0 64` and a restart. A scenario
+that listens through the board's microphones (`audio_loopback`,
+`speaker_acoustic`) has nothing to hear in a quiet run.
+
 ## Sharing one port: the hub
 
 The bench lease says *who* is testing; the hub decides who has the board's

@@ -45,8 +45,9 @@ host_denylist:
 # DAW Control app: F0 7D 1E <sub> ... F7. Every byte 7-bit; colours are 3 x
 # 7-bit r g b (device doubles them: (v>>1)<<1 is what a host sees echoed back
 # through LED_STATE), text is ASCII 0x20..0x7E, max 24 chars per row.
-# Source: platform-idf/docs/superpowers/specs/2026-09-06-daw-control-design.md
-# "Wire protocol" table; SysExProtocol.h carries the same numbers.
+# Source: platform-idf/docs/design/2026-09-06-daw-control-design.md, "Wire
+# protocol" table. Core's SysExProtocol.h defines the command byte
+# (CROSSPAD_CMD_DAW 0x1E) only; the sub numbers are this file's.
 daw:
   id: 0x1E
   proto_ver: 1

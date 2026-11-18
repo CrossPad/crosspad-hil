@@ -158,6 +158,35 @@ def test_leak_detected(tmp_path: Path) -> None:
     assert "FAIL — 1 problem(s):" in report.summary
 
 
+def test_a_loss_another_app_gains_back_is_not_a_leak(tmp_path: Path) -> None:
+    """Pitch Play fills a cache the kit browser's visit frees: flat over the round."""
+    dev = ChurnDevice(leak_per_visit={"Leaky": 44, "Mixer": -46})
+    ctx, _ = make_ctx(tmp_path, dev)
+    report = app_churn.SCENARIO.run(ctx, app_churn.Params(**FAST), base.Progress())
+    assert report.passed, report.summary
+    assert report.data["leaks"] == []
+    assert report.data["moved"] == ["Leaky"]
+    assert report.data["slopes"]["Leaky"]["leak"] is False
+    assert "moved to another app's visit" in report.summary
+
+
+def test_a_gain_does_not_hide_a_larger_leak(tmp_path: Path) -> None:
+    dev = ChurnDevice(leak_per_visit={"Leaky": 500, "Mixer": -46})
+    ctx, _ = make_ctx(tmp_path, dev)
+    report = app_churn.SCENARIO.run(ctx, app_churn.Params(**FAST), base.Progress())
+    assert not report.passed
+    assert report.data["slopes"]["Leaky"]["leak"] is True
+    assert report.data["moved"] == []
+
+
+def test_offset_by_gains_rule() -> None:
+    # Gains under the bar are jitter and offset nothing.
+    assert app_churn.offset_by_gains({"A": 56.0, "B": -20.0}, 32) == {"A": 56.0}
+    # One gain is spent once, on the largest loss first.
+    assert app_churn.offset_by_gains({"A": 100.0, "B": 60.0, "C": -120.0}, 32) == \
+        {"A": 0.0, "B": 40.0}
+
+
 def test_leak_under_threshold_passes(tmp_path: Path) -> None:
     dev = ChurnDevice(leak_per_visit={"Mixer": 1000})
     ctx, _con = make_ctx(tmp_path, dev)
