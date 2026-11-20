@@ -9,6 +9,8 @@ to start the app and read `LED_STATE`:
    host script depends on.
 2. `led_all` (0x03) paints a known per-pad pattern; `LED_STATE` must report it
    back, 7-bit-rounded and doubled (`(v>>1)<<1`) the way the device stores it.
+   Two pads are painted 0,0,0 and must read `000000` (dark), not the no-host
+   idle blue `101830` (fixed in dawcontrol 0.5.1).
 3. A pad press/release is simulated the way HIL always simulates one — the
    existing audio-route SysEx pad stimulus (`sysex_pad`, `0x1D 0x07/0x08`)
    rather than real hardware — and must turn into a NoteOn/NoteOff at
@@ -84,9 +86,15 @@ def _round7(v: int) -> int:
     return (v >> 1) << 1
 
 
+BLACK_PADS = (14, 15)
+
+
 def _led_pattern() -> list[tuple[int, int, int]]:
-    """pad i -> (i*16, 255-i*16, 64) — a pattern where every pad differs."""
-    return [(i * 16, 255 - i * 16, 64) for i in range(16)]
+    """pad i -> (i*16, 255-i*16, 64) — a pattern where every pad differs —
+    except BLACK_PADS, painted 0,0,0: a host's black means dark (an empty
+    Drum Rack pad), not the no-host idle blue 101830 (dawcontrol 0.5.1)."""
+    return [(0, 0, 0) if i in BLACK_PADS else (i * 16, 255 - i * 16, 64)
+            for i in range(16)]
 
 
 def _expected_led_colors(pattern: list[tuple[int, int, int]]) -> list[str]:

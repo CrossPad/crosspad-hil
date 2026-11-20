@@ -316,3 +316,14 @@ def test_app_stop_is_called_even_when_the_run_fails(tmp_path: Path,
     scenario = get("daw_control")
     scenario.run(ctx, scenario.Params(), base.Progress())
     assert "APP_STOP" in dev.written
+
+
+def test_led_pattern_paints_some_pads_black() -> None:
+    """A host's 0,0,0 must come back as 000000 (dark), not the idle blue."""
+    expected = expected_led_colors()
+    for pad in daw_control.BLACK_PADS:
+        assert expected[pad] == "000000"
+    assert "101830" not in expected
+    # every non-black pad still differs from the others
+    lit = [c for i, c in enumerate(expected) if i not in daw_control.BLACK_PADS]
+    assert len(set(lit)) == len(lit)
