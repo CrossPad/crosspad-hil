@@ -255,6 +255,7 @@ class AudioDesk:
     ``refuse``: verb prefixes answered ``ERR`` (an ADC held by a claim, say).
     ``no_mixer``: a build without the Mixer, which echoes MIX_LVL / MIX_ROUTE.
     ``no_mix_verbs``: a firmware before MIX_MUTE / MIX_VOL / MIX_OUT_*, which echoes them.
+    ``no_solo_verb``: a firmware before MIX_SOLO, which echoes it.
     """
 
     ADC = {"DIFF": 0, "LINE1": 1, "LINE2": 2}
@@ -263,8 +264,10 @@ class AudioDesk:
     MIX_VERBS = ("MIX_MUTE", "MIX_VOL", "MIX_OUT_MUTE", "MIX_OUT_VOL")
 
     def __init__(self, *, no_mixer: bool = False, refuse: tuple[str, ...] = (),
-                 no_mix_verbs: bool = False) -> None:
+                 no_mix_verbs: bool = False, no_solo_verb: bool = False) -> None:
         self.no_mixer = no_mixer
+        self.no_solo_verb = no_solo_verb
+        self.solo: set[int] = set()
         self.no_mix_verbs = no_mix_verbs
         self.refuse = refuse
         self.channels: list[dict[str, Any]] = [
@@ -295,6 +298,15 @@ class AudioDesk:
             lines += [f"MIXLVL: out={i} pk=0.0000/0.0000 vol={o['vol']:.2f} mute={o['mute']}"
                       for i, o in enumerate(self.outputs)]
             return [*lines, "MIXLVL: end"]
+        if verb == "MIX_SOLO" and not (self.no_mixer or self.no_solo_verb):
+            if not args:
+                return [f"MIXSOLO: ch={','.join(str(c) for c in sorted(self.solo)) or '-'}"]
+            ch, on = (int(a) for a in args)
+            if ch >= len(self.channels) or on not in (0, 1):
+                return ["ERR MIX_SOLO [ch 0|1]"]
+            self.commands.append(cmd)
+            (self.solo.add if on else self.solo.discard)(ch)
+            return ["OK"]
         if verb == "AUDIO_STATUS":
             def lst(v: list[int]) -> str:
                 return "[" + ",".join(str(x) for x in v) + "]"

@@ -12,6 +12,11 @@ scenario then measures silence. On 2026-10-09 each of these cost hours:
 * the ADC routing changed (``adc=[2,1]`` is the good default, ``adc=[1,2]``
   raised the floor).
 
+On 2026-11-26 a solo on "Sampler", kept with the desk, silenced the USB
+channel: ``audio_loopback`` recorded the noise floor on three firmware versions
+in a row while pads through the same loop peaked at full scale. ``MIX_LVL`` does
+not show a solo; ``MIX_SOLO`` does.
+
 (The Sampler's "16 LEVELS" performance mode is RAM state with no verb; rt_glitch
 presses it back off itself.)
 
@@ -22,14 +27,14 @@ audio scenario's prologue: is this board in a state where a pad can be heard.
 Verbs used, all in ``hil_control.cpp`` / ``audio_route_control.cpp``:
 
 ====================  =========================================================
-reads                 ``MIX_LVL``, ``AUDIO_STATUS``, ``IN_PAIR``
+reads                 ``MIX_LVL``, ``AUDIO_STATUS``, ``IN_PAIR``, ``MIX_SOLO``
 writes (restored)     ``IN_PAIR n``, ``AUDIO_ADC c DIFF|LINE1|LINE2``,
                       ``AUDIO_MIC_SRC c``, ``AUDIO_OUT c LINE1|LINE2|ALL``,
                       ``AUDIO_VOL c 0..100`` (also saved to NVS, as the overlay
                       does), ``AUDIO_MUTE c 0|1``, ``MIX_ROUTE ch out 0|1``,
                       ``MIX_MUTE ch 0|1``, ``MIX_VOL ch pct``, ``MIX_OUT_MUTE out
-                      0|1``, ``MIX_OUT_VOL out pct`` (the four saved with the desk,
-                      as the Mixer's close does)
+                      0|1``, ``MIX_OUT_VOL out pct``, ``MIX_SOLO ch 0|1`` (the five
+                      saved with the desk, as the Mixer's close does)
 **unrestorable**      a mixer level above unity (``vol`` > 1.00: the verbs take
                       0..100 %), and the mixer's mute/level on a firmware that
                       predates ``MIX_MUTE``: those are reported, never guessed.
@@ -65,7 +70,7 @@ VOL_TOLERANCE = 0.005         # MIX_LVL volumes are printed to two decimals
 NO_MIXER_VERB = ("the firmware has no MIX_MUTE / MIX_VOL / MIX_OUT_MUTE / MIX_OUT_VOL "
                  "(it predates them)")
 ABOVE_UNITY = "a level above unity has no verb (MIX_VOL / MIX_OUT_VOL take 0..100 %)"
-MIXER_KINDS = ("ch_mute", "ch_vol", "out_mute", "out_vol")
+MIXER_KINDS = ("ch_mute", "ch_vol", "out_mute", "out_vol", "solo")
 
 
 def _pct(vol: Any) -> int | None:
@@ -81,6 +86,7 @@ def _pct(vol: Any) -> int | None:
 _LIST = re.compile(r"(\w+)=\[([^\]]*)\]")
 _SCALAR = re.compile(r"(\w+)=(-?\d+)\b")
 _INPAIR = re.compile(r"pair=(-?\d+)")
+_SOLO = re.compile(r"\bch=([-\d,]*)")
 
 Log = Callable[[str], None]
 
@@ -112,9 +118,10 @@ def snapshot(dev: CdcLink) -> dict[str, Any]:
     ``{"mixer": {"channels": [{ch, name, vol, mute, route:[0|1..]}],
                  "outputs":  [{out, vol, mute}]} | None,
        "audio": {"mic_src": int, "adc": [..], "out": [..], "vol": [..], "mute": [..]} | None,
-       "in_pair": int | None}``
+       "in_pair": int | None,
+       "solo": [ch, ..] | None}``  (the soloed channels; ``[]`` for none)
     """
-    snap: dict[str, Any] = {"mixer": None, "audio": None, "in_pair": None}
+    snap: dict[str, Any] = {"mixer": None, "audio": None, "in_pair": None, "solo": None}
 
     def silent(e: HilError) -> bool:
         """A board that answers nothing at all (crashed, rebooting) gets asked once, not
@@ -147,6 +154,13 @@ def snapshot(dev: CdcLink) -> dict[str, Any]:
         m = _INPAIR.search(dev.transact("IN_PAIR", "INPAIR:").line or "")
         if m:
             snap["in_pair"] = int(m.group(1))
+    except HilError as e:
+        if silent(e):
+            return snap
+    try:
+        m = _SOLO.search(dev.transact("MIX_SOLO", "MIXSOLO:").line or "")
+        if m:
+            snap["solo"] = [int(t) for t in m.group(1).split(",") if t.isdigit()]
     except HilError as e:
         silent(e)
     return snap
@@ -210,6 +224,10 @@ def diff(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[di
         for o, (x, y) in enumerate(zip(r0, r1, strict=False)):
             if x != y:
                 add(("route", c0["ch"], o), f"{tag} send to out {o}", x, y)
+    s0, s1 = before.get("solo"), after.get("solo")
+    if s0 is not None and s1 is not None:
+        for ch in sorted(set(s0) ^ set(s1)):
+            add(("solo", ch), f"mixer ch {ch} solo", int(ch in s0), int(ch in s1))
     outs1 = {o.get("out"): o for o in ((after.get("mixer") or {}).get("outputs") or [])}
     for o0 in ((before.get("mixer") or {}).get("outputs") or []):
         o1 = outs1.get(o0.get("out"))
@@ -272,6 +290,8 @@ def _apply(dev: CdcLink, change: dict[str, Any]) -> None:
         _ok(dev, f"MIX_OUT_MUTE {key[1]} {int(want)}")
     elif kind == "out_vol":
         _ok(dev, f"MIX_OUT_VOL {key[1]} {_pct(want)}")
+    elif kind == "solo":
+        _ok(dev, f"MIX_SOLO {key[1]} {int(want)}")
     else:
         raise HilError(NOT_SUPPORTED, f"no verb puts back {kind}")
 
@@ -403,6 +423,15 @@ def problems(snap: dict[str, Any], channel: str = SAMPLER_CHANNEL,
                 found.append({"text": f"mixer channel {ch['ch']} '{channel}' has no send; "
                                       f"send to out {o} switched on",
                               "cmd": f"MIX_ROUTE {ch['ch']} {o} 1"})
+    solo = snap.get("solo") or []
+    if ch is not None and solo and ch.get("ch") not in solo:
+        # A solo silences every channel without one, whatever its own mute and sends say.
+        names = {c.get("ch"): c.get("name")
+                 for c in ((snap.get("mixer") or {}).get("channels") or [])}
+        for s in solo:
+            found.append({"text": f"mixer channel {s} '{names.get(s, '?')}' was soloed (saved "
+                                  f"across reboots), which silences '{channel}'; solo off",
+                          "cmd": f"MIX_SOLO {s} 0"})
     for codec, vol in enumerate((snap.get("audio") or {}).get("vol") or []):
         if vol < min_out_vol:
             found.append({"text": f"codec {codec} output volume {vol} (< {min_out_vol}) raised "

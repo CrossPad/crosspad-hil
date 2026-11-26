@@ -64,7 +64,8 @@ def test_a_board_that_answers_nothing_gives_an_empty_snapshot() -> None:
     ser = FakeSerial(timeout=0.01)          # echoes every verb: "no handler matched"
     link = CdcLink("fake-audio-none", serial_factory=lambda path, **kw: ser)
     link.open()
-    assert audio_state.snapshot(link) == {"mixer": None, "audio": None, "in_pair": None}
+    assert audio_state.snapshot(link) == {"mixer": None, "audio": None, "in_pair": None,
+                                         "solo": None}
 
 
 def test_nothing_moved_sends_nothing() -> None:
@@ -308,5 +309,48 @@ def test_a_board_that_answers_nothing_is_asked_once() -> None:
     ser = Dead(timeout=0.01)
     link = CdcLink("fake-audio-dead", serial_factory=lambda path, **kw: ser)
     link.open()
-    assert audio_state.snapshot(link) == {"mixer": None, "audio": None, "in_pair": None}
+    assert audio_state.snapshot(link) == {"mixer": None, "audio": None, "in_pair": None,
+                                         "solo": None}
     assert ser.written == ["MIX_LVL"]
+
+
+# --- solo ----------------------------------------------------------------------
+
+def test_snapshot_reads_the_solo() -> None:
+    desk = AudioDesk()
+    assert audio_state.snapshot(link_for(desk))["solo"] == []
+    desk.solo = {0}
+    assert audio_state.snapshot(link_for(desk))["solo"] == [0]
+    assert audio_state.snapshot(link_for(AudioDesk(no_solo_verb=True)))["solo"] is None
+
+
+def test_a_solo_on_another_channel_silences_usb_and_is_switched_off() -> None:
+    """2026-11-26: "Sampler" soloed in the saved desk; audio_loopback heard nothing."""
+    desk = AudioDesk()
+    desk.solo = {0}
+    res = audio_state.ensure_audible(link_for(desk), channel="USB")
+    assert res["unfixable"] == [] and len(res["fixed"]) == 1
+    assert "'Sampler' was soloed" in res["fixed"][0]
+    assert desk.commands == ["MIX_SOLO 0 0"] and desk.solo == set()
+
+
+def test_a_solo_on_the_channel_itself_is_left_alone() -> None:
+    desk = AudioDesk()
+    desk.solo = {0}
+    assert audio_state.ensure_audible(link_for(desk))["fixed"] == []
+    assert desk.solo == {0}
+
+
+def test_a_solo_the_run_moved_is_put_back() -> None:
+    desk = AudioDesk()
+    link = link_for(desk)
+    snap = audio_state.snapshot(link)
+    desk.solo = {1}
+    res = audio_state.restore(link, snap)
+    assert res["restored"] == ["mixer ch 1 solo: 1 -> 0"] and desk.solo == set()
+
+
+def test_a_firmware_without_mix_solo_says_nothing_about_solo() -> None:
+    desk = AudioDesk(no_solo_verb=True)
+    res = audio_state.ensure_audible(link_for(desk), channel="USB")
+    assert res == {"fixed": [], "unfixable": [], "unread": []}

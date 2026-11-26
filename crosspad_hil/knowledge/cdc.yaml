@@ -116,6 +116,7 @@ verbs:
   # -- audio ---------------------------------------------------------
   MIX_LVL:         {args: [], reply: multi, prefix: "MIXLVL:", end: "MIXLVL: end", profile: default}   # per-channel + per-output mixer meters, route/vol/mute — DEBUG (speaker-silent hunt)
   MIX_MUTE:        {args: ["ch:int", "on:int"], reply: "OK", end: null, profile: default}   # a mixer channel's mute (MIX_LVL numbering), as the Mixer's M button; the desk is saved (survives a reboot); ERR on a bad channel or value
+  MIX_SOLO:        {args: ["ch:int?", "on:int?"], reply: "MIXSOLO:", end: null, profile: default}   # the soloed mixer channels (MIX_LVL numbering): "MIXSOLO: ch=0,3" or "MIXSOLO: ch=-"; with "ch 0|1" sets one, as the Mixer's S button, replying OK (the desk is saved, a solo survives a reboot and silences every other channel, USB playback included); ERR MIX_SOLO [ch 0|1] on a bad channel or value
   MIX_VOL:         {args: ["ch:int", "pct:int"], reply: "OK", end: null, profile: default}   # a mixer channel's level, linear percent 0..100 (100 = unity, MIX_LVL vol=1.00), as the Mixer's fader; saved
   MIX_OUT_MUTE:    {args: ["out:int", "on:int"], reply: "OK", end: null, profile: default}   # a mixer output's mute; saved
   MIX_OUT_VOL:     {args: ["out:int", "pct:int"], reply: "OK", end: null, profile: default}   # a mixer output's level, linear percent 0..100; saved
