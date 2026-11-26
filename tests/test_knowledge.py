@@ -189,10 +189,10 @@ EXPECTED_VERBS = {
     "STM_RESET",
     "PAD_PRESS", "PAD_RELEASE", "PAD_PRESSURE", "PAD_PAN", "PAD_STATS", "PAD_STATS_RESET",
     "PAD_NOTES", "PAD_INFO", "STM_VPAD", "MIDI_TRS", "MIDI_LOOP",
-    "ENC_ROTATE", "ENC_PRESS", "ENC_FOCUS", "ENC_GROUP", "ENC_STATE", "UI_STATE",
+    "ENC_ROTATE", "ENC_PRESS", "ENC_ACCEL", "ENC_FOCUS", "ENC_GROUP", "ENC_STATE", "UI_STATE",
     "LED_STATE", "MEM", "MEM_BLOCKS", "CDC_STATS", "LVGL_STATS", "LVGL_INV", "LVGL_PROF", "TASKS", "CLOCK_STATUS",
-    "PWR_GESTURE",
-    "RESET_LOG", "COREDUMP_INFO", "RESET_TEST", "STM_REG", "SETTINGS_RESET",
+    "PWR_GESTURE", "PWR",
+    "RESET_LOG", "COREDUMP_INFO", "RESET_TEST", "STM_REG", "STM_REGW", "SETTINGS_RESET",
     "IMU", "IMU_MIDI", "IMU_GESTURE", "IMU_THS", "IMU_REG", "IMU_REGW", "TOUCH_TRACE", "TOUCH_DRAG", "TOUCH_TAP", "TOPBAR", "UI_TREE", "WORKER",
     "ULP", "HEAP_TRACE",
     "AUDIO_LEVEL", "INGAIN", "MIX_LVL", "AUDIO_STATUS", "AUDIO_ADC", "AUDIO_MIC_SRC", "AUDIO_OUT", "AUDIO_VOL",
@@ -296,3 +296,20 @@ def test_arg_specs_match_the_sscanf_formats() -> None:
     assert v["BLE_START"]["args"] == ["mode:int?"]
     assert v["AUDIO_ADC"]["args"] == ["codec:int", "input:str"]
     assert v["OTA_BEGIN"]["args"] == ["size:int", "version:str"]
+def test_power_and_encoder_verbs_are_in_the_catalog() -> None:
+    """The verbs a bench script kept being refused -- and the trick that makes one
+    catalog entry cover the three `PWR` subcommands: the client derives the expected
+    reply prefix from the *first word* of the command and matches it by prefix, so
+    `PWR`, `PWRW:` and `PWRKA:` all hang off one entry. Without it, `crosspad-hil
+    cdc PWR WAKE` refuses to send and the caller has to pass --expect, which is the
+    escape hatch that lets a script claim it checked something it only hoped."""
+    from crosspad_hil.cdc import resolve_expect
+
+    verbs = load("cdc")["verbs"]
+    for name in ("STM_REGW", "PWR", "ENC_ACCEL"):
+        assert name in verbs, name
+    assert resolve_expect(verbs, "PWR", None) == ("PWR", "ERR")
+    assert resolve_expect(verbs, "PWR WAKE", None) == ("PWR", "ERR")
+    assert resolve_expect(verbs, "PWR KEEPAWAKE 900", None) == ("PWR", "ERR")
+    assert resolve_expect(verbs, "STM_REGW 0x030B 0x05", None) == ("OK", "ERR")
+    assert resolve_expect(verbs, "ENC_ACCEL RESET", None) == ("ENCACCEL:", "ERR")
