@@ -759,8 +759,9 @@ class _Run:
             if saw and not any(BAKE_MISSING in lb for lb in labels) and not says_busy(labels):
                 break
             self.wait(POLL_S)
-        self.data["cold_wait"] = {"s": round(self.p.job_timeout_s - (deadline - time.monotonic()), 1),
-                                  "labels": [lb for lb in self.labels() if "ELEMENT" in lb or "BAK" in lb][:8]}
+        waited = self.p.job_timeout_s - (deadline - time.monotonic())
+        shown = [lb for lb in self.labels() if "ELEMENT" in lb or "BAK" in lb]
+        self.data["cold_wait"] = {"s": round(waited, 1), "labels": shown[:8]}
         song = self.pull(self.song_file(self.songs[0]), "song1_cold.json")
         blocks = element_blocks(song)
         bakes = self.listing(BAKE_DIR)
