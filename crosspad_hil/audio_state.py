@@ -67,6 +67,7 @@ DAC_NAMES = {1: "LINE1", 2: "LINE2", 3: "ALL"}
 SAMPLER_CHANNEL = "Sampler"
 # Codec output volumes below this make a pad inaudible at the capture; factory is 64.
 MIN_OUT_VOL = 40
+SPEAKER_CODEC = 0           # the speakers are a pair of codec 0
 FACTORY_VOL = 64
 VOL_TOLERANCE = 0.005         # MIX_LVL volumes are printed to two decimals
 
@@ -195,6 +196,14 @@ def _same_vol(a: Any, b: Any) -> bool:
         return a == b
 
 
+def speakers_known(snap: dict[str, Any] | None) -> bool:
+    """A firmware with SPEAKERS keeps a level per output: codec 0's AUDIO_STATUS
+    ``vol`` is then the speakers' pair (0 while they are switched off), and an
+    ``AUDIO_VOL 0`` writes the speakers' saved level and silences the phones'
+    pair. SPEAKERS owns codec 0 there; nothing here compares or raises it."""
+    return bool(snap) and snap.get("speakers") is not None
+
+
 def diff(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[dict[str, Any]]:
     """``[{key, what, before, after, fixable}]`` for every field that moved.
 
@@ -216,9 +225,12 @@ def diff(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[di
     ba, aa = before.get("audio") or {}, after.get("audio") or {}
     if "mic_src" in ba and "mic_src" in aa and ba["mic_src"] != aa["mic_src"]:
         add(("mic_src",), "capture source codec", ba["mic_src"], aa["mic_src"])
+    speakers_own_codec0 = speakers_known(before) and speakers_known(after)
     for field, label in (("adc", "ADC input"), ("out", "DAC output"),
                          ("vol", "codec volume"), ("mute", "codec mute")):
         for i, (x, y) in enumerate(zip(ba.get(field) or [], aa.get(field) or [], strict=False)):
+            if field == "vol" and i == SPEAKER_CODEC and speakers_own_codec0:
+                continue
             if x != y:
                 fixable = field != "out" or x in DAC_NAMES
                 add((field, i), f"{label} codec {i}", x, y, fixable)
@@ -451,6 +463,8 @@ def problems(snap: dict[str, Any], channel: str = SAMPLER_CHANNEL,
                                   f"across reboots), which silences '{channel}'; solo off",
                           "cmd": f"MIX_SOLO {s} 0"})
     for codec, vol in enumerate((snap.get("audio") or {}).get("vol") or []):
+        if codec == SPEAKER_CODEC and speakers_known(snap):
+            continue
         if vol < min_out_vol:
             found.append({"text": f"codec {codec} output volume {vol} (< {min_out_vol}) raised "
                                   f"to {FACTORY_VOL}", "cmd": f"AUDIO_VOL {codec} {FACTORY_VOL}"})

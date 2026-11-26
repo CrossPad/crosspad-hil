@@ -255,7 +255,9 @@ class AudioDesk:
     ``refuse``: verb prefixes answered ``ERR`` (an ADC held by a claim, say).
     ``no_mixer``: a build without the Mixer, which echoes MIX_LVL / MIX_ROUTE.
     ``no_mix_verbs``: a firmware before MIX_MUTE / MIX_VOL / MIX_OUT_*, which echoes them.
-    ``no_solo_verb``: a firmware before MIX_SOLO and SPEAKERS, which echoes them.
+    ``no_solo_verb``: a firmware before MIX_SOLO, which echoes it.
+    ``speakers_verb``: a firmware with SPEAKERS (a level per output: codec 0's
+    AUDIO_STATUS vol is then the speakers' pair).
     """
 
     ADC = {"DIFF": 0, "LINE1": 1, "LINE2": 2}
@@ -264,9 +266,11 @@ class AudioDesk:
     MIX_VERBS = ("MIX_MUTE", "MIX_VOL", "MIX_OUT_MUTE", "MIX_OUT_VOL")
 
     def __init__(self, *, no_mixer: bool = False, refuse: tuple[str, ...] = (),
-                 no_mix_verbs: bool = False, no_solo_verb: bool = False) -> None:
+                 no_mix_verbs: bool = False, no_solo_verb: bool = False,
+                 speakers_verb: bool = False) -> None:
         self.no_mixer = no_mixer
         self.no_solo_verb = no_solo_verb
+        self.speakers_verb = speakers_verb
         self.solo: set[int] = set()
         self.speakers = {"on": 0, "level": 10}
         self.no_mix_verbs = no_mix_verbs
@@ -308,7 +312,7 @@ class AudioDesk:
             self.commands.append(cmd)
             (self.solo.add if on else self.solo.discard)(ch)
             return ["OK"]
-        if verb == "SPEAKERS" and not self.no_solo_verb:
+        if verb == "SPEAKERS" and self.speakers_verb:
             if not args:
                 return [f"SPEAKERS: on={self.speakers['on']} level={self.speakers['level']}"]
             self.commands.append(cmd)

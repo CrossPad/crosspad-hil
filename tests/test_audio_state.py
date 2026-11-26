@@ -359,7 +359,7 @@ def test_a_firmware_without_mix_solo_says_nothing_about_solo() -> None:
 def test_speakers_a_ui_walk_switched_on_are_put_back() -> None:
     """2026-11-26: back_churn's walk switched Settings -> Audio -> Speakers on and moved
     the level 10 -> 22; the next quiet step found the amp allowed."""
-    desk = AudioDesk()
+    desk = AudioDesk(speakers_verb=True)
     link = link_for(desk)
     snap = audio_state.snapshot(link)
     assert snap["speakers"] == {"on": 0, "level": 10}
@@ -368,3 +368,25 @@ def test_speakers_a_ui_walk_switched_on_are_put_back() -> None:
     assert desk.commands == ["SPEAKERS 0 10"] and desk.speakers == {"on": 0, "level": 10}
     assert res["restored"] == ["speakers (switch, level): {'on': 1, 'level': 22} -> "
                                "{'on': 0, 'level': 10}"]
+
+
+def test_with_speakers_known_codec_0_is_theirs() -> None:
+    """2026-11-26 on the board: the speakers switched off read AUDIO_STATUS vol=[0,56], and
+    a restore wrote AUDIO_VOL 0 0 (the speakers' saved level, the phones' pair silenced);
+    ensure_audible would have raised it to 64 -- the speakers' saved level, loud."""
+    desk = AudioDesk(speakers_verb=True)
+    desk.vol = [0, 56]
+    link = link_for(desk)
+    assert audio_state.ensure_audible(link, channel="USB")["fixed"] == []
+    snap = audio_state.snapshot(link)
+    desk.vol = [22, 56]
+    desk.speakers = {"on": 1, "level": 22}
+    audio_state.restore(link, snap)
+    assert desk.commands == ["SPEAKERS 0 10"]
+
+
+def test_without_speakers_codec_0_is_still_checked() -> None:
+    desk = AudioDesk()
+    desk.vol = [20, 56]
+    res = audio_state.ensure_audible(link_for(desk))
+    assert "AUDIO_VOL 0 64" in desk.commands and len(res["fixed"]) == 1
