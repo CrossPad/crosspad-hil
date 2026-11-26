@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from crosspad_hil import card_hold
+from crosspad_hil import audio_state, card_hold
 from crosspad_hil import host_gain as hostgain
 from crosspad_hil.analyze import MULTITONE_MIN_RMS_DBFS
 from crosspad_hil.audio_nodes import OUT_NODE
@@ -53,6 +53,7 @@ from crosspad_hil.scenarios.base import Artifact, Context, Progress, Report, reg
 from crosspad_hil.usbmode import set_mode
 
 # --- timings and levels, every one the old script's literal -------------------
+USB_CHANNEL = "USB"   # the mixer channel the host's playback plays on
 PLAY_DELAY_S = 0.8          # run_cycle: time.sleep(0.8) between arecord and aplay
 CAPTURE_PAD_S = 3.0         # rec_len = int(tone_seconds + 3)
 PLAY_TIMEOUT_PAD_S = 15.0   # aplay timeout = tone_seconds + 15
@@ -410,6 +411,7 @@ class AudioLoopbackScenario:
         link = _open_cdc(ctx)
         previous = previous_pair = None
         try:
+            make_audible(ctx, link, data)
             if free_loop:
                 previous_pair = _audio.free_jack_loop(ctx, link, data)
             if pin_gain:
@@ -608,6 +610,19 @@ class AudioLoopbackScenario:
         return Report(passed=False,
                       summary=f"audio_loopback: FAIL — {body}" + (f" ({extra})" if extra else ""),
                       data=data, artifacts=artifacts, exit_code=1)
+
+
+def make_audible(ctx: Context, link: Any, data: dict[str, Any]) -> None:
+    """Unmute, route and un-solo what keeps the host's playback off the outputs
+    (``audio_state.ensure_audible`` on the USB channel); what cannot be fixed is
+    ENV, naming it. The fixes stay: a desk that silences USB playback is the
+    bench's fault, not something to put back."""
+    res = audio_state.ensure_audible(link, ctx.log, channel=USB_CHANNEL)
+    data["audible"] = res
+    if res["unfixable"]:
+        raise HilError(ENV, "the host's playback cannot reach the outputs: "
+                       + "; ".join(res["unfixable"]),
+                       hint="open the Mixer app and check the USB channel")
 
 
 def _open_cdc(ctx: Context) -> Any:
