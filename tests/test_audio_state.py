@@ -65,7 +65,7 @@ def test_a_board_that_answers_nothing_gives_an_empty_snapshot() -> None:
     link = CdcLink("fake-audio-none", serial_factory=lambda path, **kw: ser)
     link.open()
     assert audio_state.snapshot(link) == {"mixer": None, "audio": None, "in_pair": None,
-                                         "solo": None}
+                                         "solo": None, "speakers": None}
 
 
 def test_nothing_moved_sends_nothing() -> None:
@@ -310,7 +310,7 @@ def test_a_board_that_answers_nothing_is_asked_once() -> None:
     link = CdcLink("fake-audio-dead", serial_factory=lambda path, **kw: ser)
     link.open()
     assert audio_state.snapshot(link) == {"mixer": None, "audio": None, "in_pair": None,
-                                         "solo": None}
+                                         "solo": None, "speakers": None}
     assert ser.written == ["MIX_LVL"]
 
 
@@ -354,3 +354,17 @@ def test_a_firmware_without_mix_solo_says_nothing_about_solo() -> None:
     desk = AudioDesk(no_solo_verb=True)
     res = audio_state.ensure_audible(link_for(desk), channel="USB")
     assert res == {"fixed": [], "unfixable": [], "unread": []}
+
+
+def test_speakers_a_ui_walk_switched_on_are_put_back() -> None:
+    """2026-11-26: back_churn's walk switched Settings -> Audio -> Speakers on and moved
+    the level 10 -> 22; the next quiet step found the amp allowed."""
+    desk = AudioDesk()
+    link = link_for(desk)
+    snap = audio_state.snapshot(link)
+    assert snap["speakers"] == {"on": 0, "level": 10}
+    desk.speakers = {"on": 1, "level": 22}
+    res = audio_state.restore(link, snap)
+    assert desk.commands == ["SPEAKERS 0 10"] and desk.speakers == {"on": 0, "level": 10}
+    assert res["restored"] == ["speakers (switch, level): {'on': 1, 'level': 22} -> "
+                               "{'on': 0, 'level': 10}"]

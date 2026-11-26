@@ -255,7 +255,7 @@ class AudioDesk:
     ``refuse``: verb prefixes answered ``ERR`` (an ADC held by a claim, say).
     ``no_mixer``: a build without the Mixer, which echoes MIX_LVL / MIX_ROUTE.
     ``no_mix_verbs``: a firmware before MIX_MUTE / MIX_VOL / MIX_OUT_*, which echoes them.
-    ``no_solo_verb``: a firmware before MIX_SOLO, which echoes it.
+    ``no_solo_verb``: a firmware before MIX_SOLO and SPEAKERS, which echoes them.
     """
 
     ADC = {"DIFF": 0, "LINE1": 1, "LINE2": 2}
@@ -268,6 +268,7 @@ class AudioDesk:
         self.no_mixer = no_mixer
         self.no_solo_verb = no_solo_verb
         self.solo: set[int] = set()
+        self.speakers = {"on": 0, "level": 10}
         self.no_mix_verbs = no_mix_verbs
         self.refuse = refuse
         self.channels: list[dict[str, Any]] = [
@@ -306,6 +307,14 @@ class AudioDesk:
                 return ["ERR MIX_SOLO [ch 0|1]"]
             self.commands.append(cmd)
             (self.solo.add if on else self.solo.discard)(ch)
+            return ["OK"]
+        if verb == "SPEAKERS" and not self.no_solo_verb:
+            if not args:
+                return [f"SPEAKERS: on={self.speakers['on']} level={self.speakers['level']}"]
+            self.commands.append(cmd)
+            self.speakers["on"] = int(args[0])
+            if len(args) > 1:
+                self.speakers["level"] = int(args[1])
             return ["OK"]
         if verb == "AUDIO_STATUS":
             def lst(v: list[int]) -> str:

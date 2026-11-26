@@ -27,14 +27,17 @@ audio scenario's prologue: is this board in a state where a pad can be heard.
 Verbs used, all in ``hil_control.cpp`` / ``audio_route_control.cpp``:
 
 ====================  =========================================================
-reads                 ``MIX_LVL``, ``AUDIO_STATUS``, ``IN_PAIR``, ``MIX_SOLO``
+reads                 ``MIX_LVL``, ``AUDIO_STATUS``, ``IN_PAIR``, ``MIX_SOLO``,
+                      ``SPEAKERS``
 writes (restored)     ``IN_PAIR n``, ``AUDIO_ADC c DIFF|LINE1|LINE2``,
                       ``AUDIO_MIC_SRC c``, ``AUDIO_OUT c LINE1|LINE2|ALL``,
                       ``AUDIO_VOL c 0..100`` (also saved to NVS, as the overlay
                       does), ``AUDIO_MUTE c 0|1``, ``MIX_ROUTE ch out 0|1``,
                       ``MIX_MUTE ch 0|1``, ``MIX_VOL ch pct``, ``MIX_OUT_MUTE out
                       0|1``, ``MIX_OUT_VOL out pct``, ``MIX_SOLO ch 0|1`` (the five
-                      saved with the desk, as the Mixer's close does)
+                      saved with the desk, as the Mixer's close does),
+                      ``SPEAKERS 0|1 pct`` (Settings -> Audio's switch and the
+                      speakers' level, saved)
 **unrestorable**      a mixer level above unity (``vol`` > 1.00: the verbs take
                       0..100 %), and the mixer's mute/level on a firmware that
                       predates ``MIX_MUTE``: those are reported, never guessed.
@@ -87,6 +90,7 @@ _LIST = re.compile(r"(\w+)=\[([^\]]*)\]")
 _SCALAR = re.compile(r"(\w+)=(-?\d+)\b")
 _INPAIR = re.compile(r"pair=(-?\d+)")
 _SOLO = re.compile(r"\bch=([-\d,]*)")
+_SPEAKERS = re.compile(r"\bon=([01])\s+level=(\d+)")
 
 Log = Callable[[str], None]
 
@@ -119,9 +123,11 @@ def snapshot(dev: CdcLink) -> dict[str, Any]:
                  "outputs":  [{out, vol, mute}]} | None,
        "audio": {"mic_src": int, "adc": [..], "out": [..], "vol": [..], "mute": [..]} | None,
        "in_pair": int | None,
-       "solo": [ch, ..] | None}``  (the soloed channels; ``[]`` for none)
+       "solo": [ch, ..] | None,   (the soloed channels; ``[]`` for none)
+       "speakers": {"on": 0|1, "level": int} | None}``  (Settings -> Audio's switch)
     """
-    snap: dict[str, Any] = {"mixer": None, "audio": None, "in_pair": None, "solo": None}
+    snap: dict[str, Any] = {"mixer": None, "audio": None, "in_pair": None, "solo": None,
+                            "speakers": None}
 
     def silent(e: HilError) -> bool:
         """A board that answers nothing at all (crashed, rebooting) gets asked once, not
@@ -161,6 +167,13 @@ def snapshot(dev: CdcLink) -> dict[str, Any]:
         m = _SOLO.search(dev.transact("MIX_SOLO", "MIXSOLO:").line or "")
         if m:
             snap["solo"] = [int(t) for t in m.group(1).split(",") if t.isdigit()]
+    except HilError as e:
+        if silent(e):
+            return snap
+    try:
+        m = _SPEAKERS.search(dev.transact("SPEAKERS", "SPEAKERS:").line or "")
+        if m:
+            snap["speakers"] = {"on": int(m.group(1)), "level": int(m.group(2))}
     except HilError as e:
         silent(e)
     return snap
@@ -224,6 +237,9 @@ def diff(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[di
         for o, (x, y) in enumerate(zip(r0, r1, strict=False)):
             if x != y:
                 add(("route", c0["ch"], o), f"{tag} send to out {o}", x, y)
+    k0, k1 = before.get("speakers"), after.get("speakers")
+    if k0 is not None and k1 is not None and k0 != k1:
+        add(("speakers",), "speakers (switch, level)", k0, k1)
     s0, s1 = before.get("solo"), after.get("solo")
     if s0 is not None and s1 is not None:
         for ch in sorted(set(s0) ^ set(s1)):
@@ -292,6 +308,8 @@ def _apply(dev: CdcLink, change: dict[str, Any]) -> None:
         _ok(dev, f"MIX_OUT_VOL {key[1]} {_pct(want)}")
     elif kind == "solo":
         _ok(dev, f"MIX_SOLO {key[1]} {int(want)}")
+    elif kind == "speakers":
+        _ok(dev, f"SPEAKERS {int(want['on'])} {int(want['level'])}")
     else:
         raise HilError(NOT_SUPPORTED, f"no verb puts back {kind}")
 
