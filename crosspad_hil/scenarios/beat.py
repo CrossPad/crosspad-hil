@@ -82,6 +82,12 @@ THEMES = ("Neon Green", "Yellow", "Cyan", "Purple", "Orange", "Pink", "Blue", "R
 # fails only under the floor the UI needs.
 MEM_TOLERANCE = {"int_free": 12 * 1024}
 PSRAM_FLOOR = 64 * 1024
+# Render passes longer than a block (SMPL overruns) the run may add. The I2S
+# queue absorbs a single long pass -- only an underrun is heard -- and a song
+# with a bounce, a kit load and a freeze has a few a minute on main (CLAUDE.md,
+# "Kit Types": "a few single passes over the block a minute"). An underrun
+# fails at once.
+OVERRUN_BUDGET = 3
 
 
 @dataclass
@@ -1077,10 +1083,14 @@ class BeatRun:
         if resets != self.base["resets"] + (1 if self.rebooted else 0):
             out.append(f"{resets - self.base['resets']} reset(s) during the run")
         smpl = verbs.smpl_counters(L)
-        for key in ("underrun", "overruns"):
+        for key, budget in (("underrun", 0), ("overruns", OVERRUN_BUDGET)):
             a, b = self.base["smpl"].get(key), smpl.get(key)
-            if isinstance(a, int) and isinstance(b, int) and b != a and not self.rebooted:
-                out.append(f"SMPL {key} {a} -> {b}")
+            if not (isinstance(a, int) and isinstance(b, int)) or self.rebooted:
+                continue
+            self.data.setdefault("smpl_delta", {})[key] = b - a
+            if b - a > budget:
+                out.append(f"SMPL {key} {a} -> {b}"
+                           + (f" (more than {budget} in one run)" if budget else ""))
         mem = verbs.mem(L)
         self.data["mem"] = {"before": self.base["mem"], "after": mem}
         if self.rebooted:
