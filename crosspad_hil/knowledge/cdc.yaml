@@ -127,6 +127,8 @@ verbs:
   # -- audio ---------------------------------------------------------
   MIX_LVL:         {args: [], reply: multi, prefix: "MIXLVL:", end: "MIXLVL: end", profile: default}   # per-channel + per-output mixer meters, route/vol/mute — DEBUG (speaker-silent hunt)
   MIX_MUTE:        {args: ["ch:int", "on:int"], reply: "OK", end: null, profile: default}   # a mixer channel's mute (MIX_LVL numbering), as the Mixer's M button; the desk is saved (survives a reboot); ERR on a bad channel or value
+  MIX_SOLO:        {args: ["ch:int?", "on:int?"], reply: "MIXSOLO:", end: null, profile: default}   # the soloed mixer channels (MIX_LVL numbering): "MIXSOLO: ch=0,3" or "MIXSOLO: ch=-"; with "ch 0|1" sets one, as the Mixer's S button, replying OK (the desk is saved, a solo survives a reboot and silences every other channel, USB playback included); ERR MIX_SOLO [ch 0|1] on a bad channel or value
+  SPEAKERS:        {args: ["on:int?", "pct:int?"], reply: "SPEAKERS:", end: null, profile: default}   # Settings -> Audio's Speakers switch and the speakers' saved level: bare reads "SPEAKERS: on=0|1 level=N"; "SPEAKERS 0|1 [pct]" sets them as the switch and the slider do (saved; off drops the amp at once), replying OK before the LVGL thread applies it; ERR SPEAKERS [0|1 [pct]] on bad values
   MIX_VOL:         {args: ["ch:int", "pct:int"], reply: "OK", end: null, profile: default}   # a mixer channel's level, linear percent 0..100 (100 = unity, MIX_LVL vol=1.00), as the Mixer's fader; saved
   MIX_OUT_MUTE:    {args: ["out:int", "on:int"], reply: "OK", end: null, profile: default}   # a mixer output's mute; saved
   MIX_OUT_VOL:     {args: ["out:int", "pct:int"], reply: "OK", end: null, profile: default}   # a mixer output's level, linear percent 0..100; saved

@@ -277,7 +277,7 @@ def params_to_argparse(params_cls: type, parser: argparse.ArgumentParser) -> Non
     """Add one option per dataclass field.
 
     Rules: `bool` → `--x` / `--no-x`; `int|float|str` → typed option; `X | None` → same
-    with default None; `list[int]` / `list[str]` → comma-separated; help from
+    with default None; `list[int]` / `list[float]` / `list[str]` → comma-separated; help from
     `metadata["help"]`, default appended.
     """
     if not dataclasses.is_dataclass(params_cls):
@@ -360,8 +360,9 @@ def _coerce(value: Any, expected: str) -> Any:
             value = [v for v in value.split(",") if v != ""]
         if not isinstance(value, list):
             raise TypeError("expected a list or a comma-separated string")
-        item = "int" if "int" in expected else "str"
-        return [int(v) for v in value] if item == "int" else [str(v) for v in value]
+        item = expected.removeprefix("list[").split("]", 1)[0]
+        conv = {"int": int, "float": float}.get(item, str)
+        return [conv(v) for v in value]
     if expected == "bool":
         if isinstance(value, bool):
             return value

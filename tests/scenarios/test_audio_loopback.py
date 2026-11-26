@@ -485,6 +485,13 @@ class Board:
         self.pair_refuse: set[int] = set()
         self.pair_calls: list[int | None] = []
         self.order: list[str] = []
+        self.unfixable: list[str] = []
+        self.audible_channels: list[str] = []
+
+    def ensure_audible(self, link: Any, log: Any = None, *, channel: str = "Sampler",
+                       **_kw: Any) -> dict:
+        self.audible_channels.append(channel)
+        return {"fixed": [], "unfixable": list(self.unfixable), "unread": []}
 
     def ingain(self, link: Any, input_index: int | None = None, db: int | None = None) -> dict:
         self.calls.append((input_index, db))
@@ -522,6 +529,7 @@ def board(monkeypatch: pytest.MonkeyPatch, bench: Bench) -> Board:
     monkeypatch.setattr(verbs, "ingain", b.ingain)
     monkeypatch.setattr(verbs, "in_pair", b.in_pair)
     monkeypatch.setattr(audio_loopback, "_open_cdc", lambda ctx: Link())
+    monkeypatch.setattr(audio_loopback.audio_state, "ensure_audible", b.ensure_audible)
     return b
 
 
@@ -742,3 +750,22 @@ def test_a_pair_a_killed_run_left_is_kept_first(tmp_path: Path, bench: Bench,
     assert rep.data["in_pair_recovered"] == {"in_pair": 2}
     assert rep.data["in_pair_before"] == 2 and board.pair == 2
     assert pins.pending("dev_ab12") == {}
+
+
+def test_the_usb_channel_is_made_audible_first(tmp_path: Path, bench: Bench,
+                                               board: Board) -> None:
+    """2026-11-26: a solo on "Sampler" in the saved desk silenced the host's playback."""
+    bench.visible = make_device(UsbMode.DEFAULT)
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), in2_gain=24)
+    assert rep.passed, rep.summary
+    assert board.audible_channels == ["USB"]
+
+
+def test_a_usb_channel_that_cannot_be_heard_is_env(tmp_path: Path, bench: Bench,
+                                                   board: Board) -> None:
+    bench.visible = make_device(UsbMode.DEFAULT)
+    board.unfixable = ["mixer channel 2 'USB' was muted (MIX_MUTE 2 0: ERR)"]
+    rep = run(make_ctx(tmp_path, UsbMode.DEFAULT), in2_gain=24)
+    assert rep.exit_code == 2 and not rep.passed
+    assert "'USB' was muted" in rep.summary
+    assert rep.data["cycles"] == 0
