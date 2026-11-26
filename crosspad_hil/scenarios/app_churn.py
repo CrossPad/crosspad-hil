@@ -167,11 +167,34 @@ def _seed_kit_if_needed(ctx: Context, link: CdcLink) -> None:
         ctx.log(f"kit seed failed ({e.code}: {e.message}) — kit-backed apps may refuse to launch")
 
 
+def offset_by_gains(rates: dict[str, float], leak_bytes: int) -> dict[str, float]:
+    """What each losing app still loses once the round's gains are set against it.
+
+    A visit is measured on its own, so memory one app's visit takes and
+    another's gives back is booked as a loss of the first and a gain of the
+    second while the heap is flat over the round (a cache the kit browser
+    frees and Pitch Play refills). A leak has no such counterpart: nothing
+    gains what it loses. Only gains past the leak bar are set against losses,
+    largest loss first, so the heap's own jitter hides nothing.
+    """
+    pool = -sum(r for r in rates.values() if r < -leak_bytes)
+    left: dict[str, float] = {}
+    for app, rate in sorted(rates.items(), key=lambda kv: -kv[1]):
+        if rate <= leak_bytes:
+            continue
+        taken = min(pool, rate)
+        pool -= taken
+        left[app] = rate - taken
+    return left
+
+
 def _report(data: dict[str, Any], console_log: str, leak_bytes: int) -> Report:
     lines: list[str] = ["--- per-app free-heap trend " + "-" * 32]
     leaks: list[str] = []
+    moved: list[str] = []
     unmeasured: list[str] = []
     slopes: dict[str, dict[str, Any]] = {}
+    measured: dict[str, tuple[float, float, int, float, float]] = {}
     for app, series in data["trend"].items():
         s = slope(series)
         if s is None:
@@ -181,17 +204,22 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int) -> Report:
         rate = per_visit(drop, visits)
         # With the windows zero visits apart there is no rate to compute, and
         # reporting 0 B/visit would be an answer rather than the absence of one.
-        measurable = visits > 1
-        leak = measurable and rate > leak_bytes
-        slopes[app] = {
-            "head": head, "tail": tail, "visits": visits,
-            "per_visit": rate, "leak": leak, "measurable": measurable,
-        }
-        if not measurable:
+        if visits <= 1:
+            slopes[app] = {"head": head, "tail": tail, "visits": visits,
+                           "per_visit": rate, "leak": False, "measurable": False}
             unmeasured.append(app)
             lines.append(f"  {app:<20} {int(head):>8} -> {int(tail):>8}  "
                          "(not measurable at this many rounds)")
             continue
+        measured[app] = (head, tail, visits, drop, rate)
+    left = offset_by_gains({app: m[4] for app, m in measured.items()}, leak_bytes)
+    for app, (head, tail, visits, drop, rate) in measured.items():
+        over = rate > leak_bytes
+        leak = over and left[app] > leak_bytes
+        slopes[app] = {
+            "head": head, "tail": tail, "visits": visits,
+            "per_visit": rate, "leak": leak, "measurable": True,
+        }
         verdict = ""
         if leak:
             verdict = f"  <-- LEAK ~{int(rate)} B/visit"
@@ -199,12 +227,16 @@ def _report(data: dict[str, Any], console_log: str, leak_bytes: int) -> Report:
                 f"{app}: ~{int(rate)} B lost per visit "
                 f"({int(drop)} B from head to tail of {visits} visits)"
             )
+        elif over:
+            verdict = "  (moved to another app's visit, not lost)"
+            moved.append(app)
         lines.append(
             f"  {app:<20} {int(head):>8} -> {int(tail):>8}  "
             f"({int(rate):+6} B/visit){verdict}"
         )
     data["slopes"] = slopes
     data["leaks"] = leaks
+    data["moved"] = moved
     data["unmeasured"] = unmeasured
     failures = list(data["failures"]) + leaks
     lines.append("")

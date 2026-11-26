@@ -24,7 +24,7 @@ from crosspad_hil.errors import BAD_ARGS, ENV, NO_DEVICE, NOT_SUPPORTED, HilErro
 from crosspad_hil.scenarios import base, get, sampler_record
 from tests.fakes import FakeSerial
 
-KITS = ["Basic", "DRUMS", "Perc"]
+KITS = ["Basic", "DRUMS", "HIL CLICK", "Perc"]
 CDC_PORT = SerialPortInfo(path="/dev/ttyACM0", vid=0x303A, pid=0x3456,
                           serial="CP-1", product="CrossPad", location="1-2.1")
 CONSOLE_PORT = SerialPortInfo(path="/dev/ttyACM1", vid=0x0483, pid=0x5740,
@@ -334,6 +334,13 @@ def test_ble_pad_transport_uses_the_kit_note_map() -> None:
 
 
 # --------------------------------------------------------------------------- speedtest
+
+
+def test_speedtest_without_a_kit_plays_the_click_fixture(bench) -> None:
+    rep = bench.run(rates=[8], step=0.25, gap=0.0, pads="0-1", gate_ms=10)
+    assert rep.passed, rep.summary
+    assert (rep.data["kit"], rep.data["kit_name"]) == (2, "HIL CLICK")
+    assert rep.data["provisioned"] == []
 
 
 def test_speedtest_passes_and_leaves_the_board_where_it_found_it(bench) -> None:

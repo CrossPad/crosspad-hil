@@ -314,6 +314,38 @@ def test_a_board_that_answers_nothing_is_asked_once() -> None:
     assert ser.written == ["MIX_LVL"]
 
 
+def test_a_quiet_run_leaves_codec_0_alone(monkeypatch: Any) -> None:
+    desk = AudioDesk()
+    desk.vol = [20, 20]
+    link = link_for(desk)
+    snap = audio_state.snapshot(link)
+    monkeypatch.setenv(audio_state.QUIET_ENV, "1")
+    audio_state.ensure_audible(link)
+    assert desk.vol == [20, audio_state.FACTORY_VOL]
+    desk.vol = [85, 30]
+    desk.commands.clear()
+    audio_state.restore(link, snap)
+    assert desk.commands == ["AUDIO_VOL 1 20"]
+    monkeypatch.setenv(audio_state.QUIET_ENV, "0")
+    desk.vol[0] = 20
+    audio_state.ensure_audible(link)
+    assert desk.vol[0] == audio_state.FACTORY_VOL
+
+
+def test_a_quiet_run_refuses_speakers_saved_loud(monkeypatch: Any) -> None:
+    import pytest
+
+    from crosspad_hil.errors import ENV, HilError
+
+    class Link:
+        def __init__(self, line: str) -> None:
+            self.line = line
+
+    monkeypatch.setattr(audio_state.verbs, "outvol", lambda dev: {"out1": 56, "out2": int(dev.line)})
+    audio_state.check_quiet(Link("5"))       # type: ignore[arg-type]
+    with pytest.raises(HilError) as e:
+        audio_state.check_quiet(Link("64"))  # type: ignore[arg-type]
+    assert e.value.code == ENV and "AUDIO_VOL 0 5" in (e.value.hint or "")
 # --- solo ----------------------------------------------------------------------
 
 def test_snapshot_reads_the_solo() -> None:
