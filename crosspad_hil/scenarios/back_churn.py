@@ -77,7 +77,10 @@ DENY = re.compile(
     # + NEW (a song in Arrange's picker, a kit in the kit browser) writes the
     # card and leaves the new one open: the Arrange heap trend then compares a
     # different song each visit and read +50..+130 B/visit as a leak.
-    r"\bnew\b)"
+    r"\bnew\b|"
+    # Arrange's SYNC is a toggle saved into the open song's song.json: two bench
+    # runs flipped Song 18's "sync" false -> true -> false (one per run).
+    r"\bsync\b)"
 )
 
 # Labels that go *up* a level: pressing one is not a descent, and pressing it
